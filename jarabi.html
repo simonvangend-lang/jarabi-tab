@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Jarabi">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>Jarabi — Tab Scroller</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #1a1a1a; color: #e0e0e0;
+    font-family: system-ui, sans-serif;
+    display: flex; flex-direction: column; height: 100vh;
+    overflow: hidden; user-select: none;
+  }
+  #controls {
+    display: flex; align-items: center; gap: 14px;
+    padding: 9px 16px; background: #111;
+    border-bottom: 1px solid #333; flex-shrink: 0; flex-wrap: wrap;
+  }
+  h1 { font-size: 14px; font-weight: 600; color: #ccc; white-space: nowrap; }
+  .cg { display: flex; align-items: center; gap: 6px; }
+  label { font-size: 12px; color: #888; white-space: nowrap; }
+  input[type=range] { width: 100px; accent-color: #e8a020; cursor: pointer; }
+  .val { font-size: 12px; color: #e8a020; min-width: 36px; }
+  button {
+    padding: 5px 15px; border: none; border-radius: 4px;
+    cursor: pointer; font-size: 13px; font-weight: 600; transition: background .12s;
+  }
+  #btn-play { background: #e8a020; color: #111; }
+  #btn-play:hover { background: #f0b030; }
+  #btn-play:disabled { background: #555; color: #888; cursor: default; }
+  #btn-reset { background: #333; color: #ccc; }
+  #btn-reset:hover { background: #444; }
+  #btn-loop { background: #333; color: #ccc; }
+  #btn-loop:hover { background: #444; }
+  #btn-loop.active { background: #c04000; color: #fff; }
+  #prog-wrap {
+    flex: 1; min-width: 80px; height: 6px; background: #333;
+    border-radius: 3px; cursor: pointer; position: relative;
+  }
+  #loop-region {
+    display: none; position: absolute; top: 0; height: 100%;
+    background: rgba(192,64,0,0.35); pointer-events: none; border-radius: 3px;
+  }
+  #prog-fill { height: 100%; width: 0%; background: #e8a020; border-radius: 3px; pointer-events: none; position: relative; z-index: 1; }
+  #status { font-size: 11px; color: #666; white-space: nowrap; }
+  #viewport { flex: 1; overflow: hidden; position: relative; }
+  canvas { display: block; }
+  #end-overlay {
+    display: none; position: absolute; inset: 0;
+    background: rgba(0,0,0,.5); align-items: center; justify-content: center; z-index: 20;
+  }
+  #end-overlay.show { display: flex; }
+  #end-msg { background: #222; color: #e0e0e0; padding: 24px 36px; border-radius: 8px; text-align: center; }
+  #end-msg button { margin-top: 14px; background: #e8a020; color: #111; padding: 8px 22px; }
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <h1>Jarabi — Derek Gripper</h1>
+  <button id="btn-play" disabled>▶ Play</button>
+  <button id="btn-reset">↺ Reset</button>
+  <div class="cg">
+    <label>BPM</label>
+    <input type="range" id="bpm-slider" min="30" max="220" value="80" step="1">
+    <span class="val" id="bpm-val">80</span>
+  </div>
+  <div class="cg">
+    <label>Zoom</label>
+    <input type="range" id="zoom-slider" min="40" max="300" value="100" step="5">
+    <span class="val" id="zoom-val">100%</span>
+  </div>
+  <div class="cg">
+    <label>Reverb</label>
+    <input type="range" id="reverb-slider" min="0" max="100" value="30" step="5">
+  </div>
+  <div class="cg">
+    <label>Swing</label>
+    <input type="range" id="swing-slider" min="0" max="100" value="0" step="5">
+    <span class="val" id="swing-val">0%</span>
+  </div>
+  <button id="btn-loop" title="Toggle loop [L]  •  Set in [ ]  •  Set out [ ]">⟳ Loop</button>
+  <div id="prog-wrap" title="Left-click: jump  •  Right-click: set loop out">
+    <div id="loop-region"></div>
+    <div id="prog-fill"></div>
+  </div>
+  <span id="status">Loading…</span>
+</div>
+
+<div id="viewport">
+  <canvas id="canvas"></canvas>
+  <div id="end-overlay">
+    <div id="end-msg">End of tab<br>
+      <button onclick="doReset()">↺ Start over</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/tone@14.8.49/build/Tone.js"></script>
+<script>
+// ── Constants ────────────────────────────────────────────────────────────────
+function cursorX() { return canvas.width / 2; }
+const MEASURE_W  = 200;   // virtual px per measure at zoom=1
+const N_STRINGS  = 6;
+const STRING_H   = 22;    // virtual px between string lines (zoom=1)
+const STAFF_H    = (N_STRINGS - 1) * STRING_H;  // 110px
+const NOTE_FONT  = 13;    // base font size for fret numbers
+const BEATS_PER_MEASURE = 4;
+
+// Colours
+const BG        = '#f7f3ec';
+const STAFF_COL = '#111';
+const BAR_COL   = '#111';
+const NOTE_COL  = '#000';
+const ACTIVE_COL= '#c04000';   // note under cursor
+const CURSOR_COL= 'rgba(230,140,20,0.75)';
+
+// ── State ────────────────────────────────────────────────────────────────────
+const canvas   = document.getElementById('canvas');
+const ctx      = canvas.getContext('2d');
+const viewport = document.getElementById('viewport');
+
+let notes        = [];     // from notes.json
+let stems        = [];     // all rhythmic beat positions
+let beams        = [];     // pairs {beat, beat_end} for beam bars
+let noteStemSet  = null;   // Set of stem beats that have a note (×8 resolution)
+let totalMeasures= 0;
+let totalBeats   = 0;
+let zoom         = 1.0;
+let scrollOffset = 0;      // virtual px from start (zoom=1)
+let playing      = false;
+let audioReady   = false;
+let animId       = null;
+
+let sampler   = null;
+let reverb    = null;
+let notePart  = null;
+
+let loopEnabled   = false;
+let loopStartBeat = 0;
+let loopEndBeat   = 0;
+
+// UI refs
+const btnPlay    = document.getElementById('btn-play');
+const bpmSlider  = document.getElementById('bpm-slider');
+const bpmVal     = document.getElementById('bpm-val');
+const zoomSlider = document.getElementById('zoom-slider');
+const zoomVal    = document.getElementById('zoom-val');
+const reverbSl   = document.getElementById('reverb-slider');
+const swingSl    = document.getElementById('swing-slider');
+const swingVal   = document.getElementById('swing-val');
+const progWrap   = document.getElementById('prog-wrap');
+const progFill   = document.getElementById('prog-fill');
+const loopRegion = document.getElementById('loop-region');
+const btnLoop    = document.getElementById('btn-loop');
+const statusEl   = document.getElementById('status');
+const endOverlay = document.getElementById('end-overlay');
+
+// ── Geometry helpers ─────────────────────────────────────────────────────────
+function measureW()  { return MEASURE_W * zoom; }
+function stringH()   { return STRING_H  * zoom; }
+function staffH()    { return STAFF_H   * zoom; }
+function staffTop()  { return (canvas.height - staffH()) / 2; }
+
+// Virtual x for a beat (zoom=1 space)
+function beatToVX(beat) { return beat * MEASURE_W / BEATS_PER_MEASURE; }
+
+// Screen x from virtual x, given current scrollOffset
+function vxToSX(vx)  { return (vx - scrollOffset) * zoom + cursorX(); }
+
+// Max scrollOffset in virtual (zoom=1) space
+function maxScroll() {
+  return Math.max(0, totalBeats * MEASURE_W / BEATS_PER_MEASURE
+                     - (canvas.width - cursorX()) / zoom);
+}
+
+// ── Drawing ──────────────────────────────────────────────────────────────────
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, W, H);
+
+  if (!notes.length) return;
+
+  const mW  = measureW();
+  const sH  = stringH();
+  const top = staffTop();
+
+  // Visible virtual-x range
+  const cx  = cursorX();
+  const vx0 = scrollOffset - cx / zoom;
+  const vx1 = scrollOffset + (W - cx) / zoom;
+
+  // ── Staff lines ────────────────────────────────────────────────────────────
+  ctx.strokeStyle = STAFF_COL;
+  ctx.lineWidth   = 1;
+  for (let s = 0; s < N_STRINGS; s++) {
+    const y  = top + s * sH;
+    const sx0 = Math.max(0,  vxToSX(vx0));
+    const sx1 = Math.min(W,  vxToSX(vx1));
+    ctx.beginPath();
+    ctx.moveTo(sx0, y);
+    ctx.lineTo(sx1, y);
+    ctx.stroke();
+  }
+
+  // ── Barlines ──────────────────────────────────────────────────────────────
+  const m0 = Math.max(0,             Math.floor(vx0 / (MEASURE_W)) - 1);
+  const m1 = Math.min(totalMeasures, Math.ceil (vx1 / (MEASURE_W)) + 1);
+  ctx.strokeStyle = BAR_COL;
+  ctx.lineWidth   = 1.5;
+  for (let m = m0; m <= m1; m++) {
+    const sx = vxToSX(m * MEASURE_W);
+    if (sx < -2 || sx > W + 2) continue;
+    ctx.beginPath();
+    ctx.moveTo(sx, top);
+    ctx.lineTo(sx, top + staffH());
+    ctx.stroke();
+  }
+
+  // ── 3+3+2 accent markers (beats 1.5 and 3.0 within each measure) ────────────
+  // Faint dotted lines inside the staff to show the rhythmic grouping
+  ctx.strokeStyle = 'rgba(0,0,0,0.13)';
+  ctx.lineWidth   = 1;
+  ctx.setLineDash([3, 4]);
+  for (let m = m0; m < m1; m++) {
+    for (const accentBeat of [1.5, 3.0]) {
+      const sx = vxToSX(m * MEASURE_W + accentBeat * MEASURE_W / BEATS_PER_MEASURE);
+      if (sx < 0 || sx > W) continue;
+      ctx.beginPath();
+      ctx.moveTo(sx, top);
+      ctx.lineTo(sx, top + staffH());
+      ctx.stroke();
+    }
+  }
+  ctx.setLineDash([]);
+
+  // ── Stems ─────────────────────────────────────────────────────────────────
+  const stemH  = Math.max(8, 18 * zoom);   // height above top string
+  const beamH  = Math.max(2, 3.5 * zoom); // beam bar thickness
+  ctx.lineWidth = Math.max(1, 1.2 * zoom);
+  for (const stem of stems) {
+    const vx = beatToVX(stem.beat);
+    if (vx < vx0 - 5 || vx > vx1 + 5) continue;
+    const sx = vxToSX(vx);
+    const hasNote = noteStemSet && noteStemSet.has(Math.round(stem.beat * 8));
+    ctx.strokeStyle = hasNote ? '#444' : '#bbb';
+    ctx.beginPath();
+    ctx.moveTo(sx, top - stemH);
+    ctx.lineTo(sx, top);
+    ctx.stroke();
+  }
+
+  // ── Beams ──────────────────────────────────────────────────────────────────
+  ctx.fillStyle = '#333';
+  for (const beam of beams) {
+    const sx0 = vxToSX(beatToVX(beam.beat));
+    const sx1 = vxToSX(beatToVX(beam.beat_end));
+    if (sx1 < -2 || sx0 > W + 2) continue;
+    ctx.fillRect(sx0, top - stemH, sx1 - sx0, beamH);
+  }
+
+  // ── Fret numbers ──────────────────────────────────────────────────────────
+  const currentBeatVal = audioReady
+    ? Tone.Transport.ticks / Tone.Transport.PPQ
+    : scrollOffset * BEATS_PER_MEASURE / MEASURE_W;
+
+  const fontSize = Math.max(8, NOTE_FONT * zoom);
+  ctx.font      = `bold ${fontSize}px monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  for (const note of notes) {
+    const vx = beatToVX(note.beat);
+    if (vx < vx0 - 20 || vx > vx1 + 20) continue;
+
+    const sx = vxToSX(vx);
+    const sy = top + note.string * sH;
+
+    // Highlight notes near the cursor
+    const beatDist = Math.abs(note.beat - currentBeatVal);
+    const isActive = beatDist < 0.3;
+
+    // White background behind number (so it sits on the staff line cleanly)
+    const pad = fontSize * 0.35;
+    ctx.fillStyle = BG;
+    ctx.fillRect(sx - pad - 1, sy - pad - 1, pad * 2 + 2 + (note.fret > 9 ? fontSize * 0.4 : 0), pad * 2 + 2);
+
+    ctx.fillStyle = isActive ? ACTIVE_COL : NOTE_COL;
+    ctx.fillText(note.fret.toString(), sx, sy);
+  }
+
+  // ── Cursor line ────────────────────────────────────────────────────────────
+  ctx.strokeStyle = CURSOR_COL;
+  ctx.lineWidth   = 2;
+  ctx.beginPath();
+  ctx.moveTo(cursorX(), 0);
+  ctx.lineTo(cursorX(), H);
+  ctx.stroke();
+
+  // ── "TAB" label at very start ──────────────────────────────────────────────
+  const startSX = vxToSX(0);
+  if (startSX > 10 && startSX < W - 10) {
+    ctx.fillStyle = '#555';
+    ctx.font = `bold ${Math.max(9, 11*zoom)}px sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('T', startSX - 6, top + sH);
+    ctx.fillText('A', startSX - 6, top + 2*sH);
+    ctx.fillText('B', startSX - 6, top + 3*sH);
+  }
+
+  // ── Progress bar ───────────────────────────────────────────────────────────
+  const mx = maxScroll();
+  progFill.style.width = (mx > 0 ? Math.min(100, scrollOffset / mx * 100) : 0) + '%';
+}
+
+// ── Data loading ─────────────────────────────────────────────────────────────
+fetch('notes.json')
+  .then(r => r.json())
+  .then(data => {
+    notes         = data.notes;
+    stems         = data.stems || [];
+    beams         = data.beams || [];
+    totalMeasures = data.total_measures;
+    totalBeats    = totalMeasures * BEATS_PER_MEASURE;
+    bpmSlider.value = data.bpm;
+    bpmVal.textContent = data.bpm;
+
+    // Which stem beats have a note (×8 resolution = 0.125-beat grid)
+    noteStemSet = new Set(notes.map(n => Math.round(n.beat * 8)));
+
+
+    statusEl.textContent = `${notes.length} notes · ${totalMeasures} bars`;
+    btnPlay.disabled = false;
+    resize();
+    draw();
+  });
+
+// ── Rhythm helpers ────────────────────────────────────────────────────────────
+// 3+3+2 accent pattern within a 4/4 bar (eighth notes 1, 4, 7)
+const ACCENT_BEATS = [0.0, 1.5, 3.0];
+
+function noteVelocity(beatInMeasure) {
+  const b = beatInMeasure;
+  if (ACCENT_BEATS.some(a => Math.abs(b - a) < 0.13)) return 1.0;   // strong
+  if (Math.abs((b * 2) % 1) < 0.13)                   return 0.68;  // other 8th
+  return 0.48;                                                        // 16th subdivision
+}
+
+// ── Audio ─────────────────────────────────────────────────────────────────────
+function makePluckSynths(dest) {
+  const resonances = [0.97, 0.965, 0.96, 0.955, 0.95, 0.945];
+  return resonances.map(r =>
+    new Tone.PluckSynth({ attackNoise: 3, dampening: 2000, resonance: r }).connect(dest)
+  );
+}
+
+async function initAudio() {
+  if (audioReady) return;
+  btnPlay.disabled = true;
+
+  try {
+    statusEl.textContent = 'Loading samples…';
+    await Tone.start();
+
+    reverb = new Tone.Reverb({ decay: 2.2, wet: reverbSl.value / 100 }).toDestination();
+    await reverb.ready;
+
+    const eq = new Tone.EQ3({ low: 3, mid: -1, high: -6,
+                               lowFrequency: 300, highFrequency: 3000 }).connect(reverb);
+
+    // Quick CDN probe before committing to sampler load
+    const BASE = 'https://nbrosowsky.github.io/tonejs-instruments/samples/guitar-nylon/';
+    let cdnOk = false;
+    try {
+      const r = await Promise.race([
+        fetch(BASE + 'E2.mp3', { method: 'HEAD', mode: 'no-cors' }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('probe timeout')), 4000)),
+      ]);
+      cdnOk = true; // no-cors always opaque-ok if server responded
+    } catch { cdnOk = false; }
+
+    let triggerNote;
+
+    if (cdnOk) {
+      // Map note names to URLs — use '#' in keys so Tone.js parses them correctly
+      const NOTES = [
+        ['E2','E2'], ['F#2','Fs2'], ['A2','A2'],
+        ['C#3','Cs3'], ['E3','E3'], ['F#3','Fs3'],
+        ['A3','A3'], ['C#4','Cs4'], ['E4','E4'],
+        ['F#4','Fs4'], ['A4','A4'], ['C#5','Cs5'], ['E5','E5'],
+      ];
+      const urls = Object.fromEntries(NOTES.map(([k, f]) => [k, BASE + f + '.mp3']));
+
+      const loaded = await Promise.race([
+        new Promise(resolve => {
+          sampler = new Tone.Sampler({ urls,
+            onload:  () => resolve(true),
+            onerror: () => resolve(false),
+          }).connect(eq);
+        }),
+        new Promise(resolve => setTimeout(() => resolve(false), 10000)),
+      ]);
+
+      if (loaded) {
+        triggerNote = (note, time, vel) => {
+          const n = Tone.Frequency(note.midi, 'midi').toNote();
+          if (note.string >= 4)
+            sampler.triggerAttackRelease(n, '8n', time, vel);
+          else
+            sampler.triggerAttack(n, time, vel);
+        };
+        statusEl.textContent = `${notes.length} notes · ${totalMeasures} bars · nylon samples`;
+      } else {
+        sampler.dispose(); sampler = null;
+      }
+    }
+
+    if (!triggerNote) {
+      const synths = makePluckSynths(eq);
+      triggerNote = (note, time, vel) => {
+        const freq = Tone.Frequency(note.midi, 'midi').toFrequency();
+        if (note.string >= 4)
+          synths[note.string].triggerAttackRelease(freq, '8n', time, vel);
+        else
+          synths[note.string].triggerAttack(freq, time, vel);
+      };
+      statusEl.textContent = `${notes.length} notes · ${totalMeasures} bars`;
+    }
+
+    Tone.Transport.bpm.value = parseInt(bpmSlider.value);
+    Tone.Transport.swingSubdivision = '8n';
+    Tone.Transport.swing = parseInt(swingSl.value) / 100;
+
+    notePart = new Tone.Part(
+      (time, note) => triggerNote(note, time, noteVelocity(note.beat_in_measure)),
+      notes.map(note => [`0:0:${Math.round(note.beat * 4)}`, note]));
+    notePart.start(0);
+
+    Tone.Transport.schedule(() => {
+      Tone.Transport.stop();
+      playing = false;
+      btnPlay.textContent = '▶ Play';
+      endOverlay.classList.add('show');
+    }, `0:0:${Math.round(totalBeats * 4)}`);
+
+    audioReady = true;
+  } catch (err) {
+    console.error('initAudio failed:', err);
+    statusEl.textContent = 'Audio error — reload and try again';
+  } finally {
+    btnPlay.disabled = false;
+  }
+}
+
+// ── Playback ─────────────────────────────────────────────────────────────────
+function currentBeat() {
+  return Tone.Transport.ticks / Tone.Transport.PPQ;
+}
+
+function syncScroll() {
+  if (!audioReady) return;
+  const beat = currentBeat();
+  scrollOffset = Math.min(maxScroll(), Math.max(0, beatToVX(beat)));
+}
+
+function animLoop() {
+  if (!playing) return;
+  syncScroll();
+  draw();
+  animId = requestAnimationFrame(animLoop);
+}
+
+async function doPlay() {
+  await initAudio();
+  if (playing) return;
+  if (Tone.Transport.state === 'stopped' && currentBeat() >= totalBeats - 0.5) {
+    doReset(); return;
+  }
+  Tone.Transport.start();
+  playing = true;
+  btnPlay.textContent = '⏸ Pause';
+  endOverlay.classList.remove('show');
+  animId = requestAnimationFrame(animLoop);
+}
+
+function doPause() {
+  Tone.Transport.pause();
+  if (sampler) sampler.releaseAll();
+  playing = false;
+  btnPlay.textContent = '▶ Play';
+  if (animId) cancelAnimationFrame(animId);
+}
+
+function doReset() {
+  Tone.Transport.stop();
+  if (sampler) sampler.releaseAll();
+  playing = false;
+  btnPlay.textContent = '▶ Play';
+  scrollOffset = 0;
+  draw();
+  endOverlay.classList.remove('show');
+  if (animId) cancelAnimationFrame(animId);
+}
+
+// ── Loop helpers ──────────────────────────────────────────────────────────────
+function scrollBeat() {
+  return scrollOffset * BEATS_PER_MEASURE / MEASURE_W;
+}
+
+function activeBeat() {
+  return (audioReady && playing) ? currentBeat() : scrollBeat();
+}
+
+function applyLoop() {
+  if (!audioReady) return;
+  if (loopEnabled && loopEndBeat > loopStartBeat) {
+    Tone.Transport.loop      = true;
+    Tone.Transport.loopStart = `0:0:${Math.round(loopStartBeat * 4)}`;
+    Tone.Transport.loopEnd   = `0:0:${Math.round(loopEndBeat   * 4)}`;
+  } else {
+    Tone.Transport.loop = false;
+  }
+}
+
+function updateLoopUI() {
+  const active = loopEnabled && loopEndBeat > loopStartBeat;
+  btnLoop.classList.toggle('active', active);
+  if (active) {
+    const m1 = Math.floor(loopStartBeat / BEATS_PER_MEASURE) + 1;
+    const m2 = Math.floor(loopEndBeat   / BEATS_PER_MEASURE) + 1;
+    btnLoop.textContent = `⟳ m${m1}–m${m2}`;
+    const f1 = loopStartBeat / totalBeats;
+    const f2 = loopEndBeat   / totalBeats;
+    loopRegion.style.left    = (f1 * 100) + '%';
+    loopRegion.style.width   = ((f2 - f1) * 100) + '%';
+    loopRegion.style.display = 'block';
+  } else {
+    btnLoop.textContent      = '⟳ Loop';
+    loopRegion.style.display = 'none';
+  }
+}
+
+function setLoopIn() {
+  loopEnabled   = true;
+  loopStartBeat = activeBeat();
+  if (loopEndBeat <= loopStartBeat)
+    loopEndBeat = Math.min(totalBeats, loopStartBeat + 8 * BEATS_PER_MEASURE);
+  updateLoopUI(); applyLoop();
+}
+
+function setLoopOut() {
+  loopEnabled = true;
+  loopEndBeat = activeBeat();
+  if (loopEndBeat <= loopStartBeat)
+    loopStartBeat = Math.max(0, loopEndBeat - 8 * BEATS_PER_MEASURE);
+  updateLoopUI(); applyLoop();
+}
+
+function toggleLoop() {
+  loopEnabled = !loopEnabled;
+  if (loopEnabled && loopEndBeat <= loopStartBeat) {
+    // Default: 8-measure window around current position
+    const cur = activeBeat();
+    loopStartBeat = Math.max(0, Math.floor(cur / BEATS_PER_MEASURE) * BEATS_PER_MEASURE);
+    loopEndBeat   = Math.min(totalBeats, loopStartBeat + 8 * BEATS_PER_MEASURE);
+  }
+  updateLoopUI(); applyLoop();
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+btnPlay.addEventListener('click', () => playing ? doPause() : doPlay());
+document.getElementById('btn-reset').addEventListener('click', doReset);
+btnLoop.addEventListener('click', toggleLoop);
+
+bpmSlider.addEventListener('input', () => {
+  bpmVal.textContent = bpmSlider.value;
+  Tone.Transport.bpm.value = parseInt(bpmSlider.value);
+});
+
+zoomSlider.addEventListener('input', () => {
+  zoom = parseFloat(zoomSlider.value) / 100;
+  zoomVal.textContent = zoomSlider.value + '%';
+  draw();
+});
+
+reverbSl.addEventListener('input', () => {
+  if (reverb) reverb.wet.value = reverbSl.value / 100;
+});
+
+swingSl.addEventListener('input', () => {
+  swingVal.textContent = swingSl.value + '%';
+  Tone.Transport.swing = parseInt(swingSl.value) / 100;
+});
+
+// Progress bar — left-click: jump (+ set loop in when loop active)
+//               right-click: set loop out when loop active
+progWrap.addEventListener('click', e => {
+  const frac       = (e.clientX - progWrap.getBoundingClientRect().left) / progWrap.clientWidth;
+  const targetBeat = frac * totalBeats;
+  if (loopEnabled) { loopStartBeat = targetBeat; updateLoopUI(); applyLoop(); }
+  scrollOffset = beatToVX(targetBeat);
+  draw();
+  if (audioReady) {
+    const wasPlaying = playing;
+    doPause();
+    Tone.Transport.ticks = Math.round(targetBeat * Tone.Transport.PPQ);
+    if (wasPlaying) { Tone.Transport.start(); playing = true; btnPlay.textContent = '⏸ Pause'; animId = requestAnimationFrame(animLoop); }
+  }
+});
+
+progWrap.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (!loopEnabled) return;
+  const frac = (e.clientX - progWrap.getBoundingClientRect().left) / progWrap.clientWidth;
+  loopEndBeat = frac * totalBeats;
+  if (loopEndBeat <= loopStartBeat) loopStartBeat = Math.max(0, loopEndBeat - 8 * BEATS_PER_MEASURE);
+  updateLoopUI(); applyLoop();
+});
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space')        { e.preventDefault(); playing ? doPause() : doPlay(); }
+  if (e.code === 'ArrowRight')   { e.preventDefault(); scrollOffset = Math.min(maxScroll(), scrollOffset + MEASURE_W); snapToBar(); seekToScrollOffset(); }
+  if (e.code === 'ArrowLeft')    { e.preventDefault(); scrollOffset = Math.max(0, scrollOffset - MEASURE_W); snapToBar(); seekToScrollOffset(); }
+  if (e.code === 'Home')         { doReset(); }
+  if (e.key  === 'l'||e.key==='L') { toggleLoop(); }
+  if (e.code === 'BracketLeft')  { e.preventDefault(); setLoopIn(); }
+  if (e.code === 'BracketRight') { e.preventDefault(); setLoopOut(); }
+});
+
+// Canvas drag to pan score (mouseup seeks transport)
+let dragStartX = null;
+let dragStartScroll = null;
+viewport.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  dragStartX = e.clientX;
+  dragStartScroll = scrollOffset;
+  viewport.style.cursor = 'grabbing';
+});
+window.addEventListener('mousemove', e => {
+  if (dragStartX === null) return;
+  const dx = dragStartX - e.clientX;
+  scrollOffset = Math.min(maxScroll(), Math.max(0, dragStartScroll + dx / zoom));
+  draw();
+});
+window.addEventListener('mouseup', e => {
+  if (dragStartX === null) return;
+  dragStartX = null;
+  viewport.style.cursor = '';
+  snapToBar();
+  seekToScrollOffset();
+});
+
+// Snap scrollOffset to the nearest barline (only when not playing)
+let snapTimer = null;
+function snapToBar() {
+  if (playing) return;
+  const m = Math.round(scrollOffset / MEASURE_W);
+  scrollOffset = Math.min(maxScroll(), Math.max(0, m * MEASURE_W));
+  draw();
+}
+function scheduleSnap() {
+  clearTimeout(snapTimer);
+  snapTimer = setTimeout(snapToBar, 150);
+}
+
+// Seek the transport to match current scrollOffset (pauses + resumes if playing)
+function seekToScrollOffset() {
+  if (!audioReady) return;
+  const beat = scrollBeat();
+  const wasPlaying = playing;
+  if (wasPlaying) {
+    Tone.Transport.pause();
+    if (sampler) sampler.releaseAll();
+    playing = false;
+    btnPlay.textContent = '▶ Play';
+    if (animId) cancelAnimationFrame(animId);
+  }
+  Tone.Transport.ticks = Math.round(beat * Tone.Transport.PPQ);
+  if (wasPlaying) {
+    Tone.Transport.start();
+    playing = true;
+    btnPlay.textContent = '⏸ Pause';
+    animId = requestAnimationFrame(animLoop);
+  }
+}
+
+// Scroll wheel: horizontal → scroll score, vertical → BPM
+viewport.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+    // Horizontal scroll — move score, snap to bar on settle
+    scrollOffset = Math.min(maxScroll(), Math.max(0, scrollOffset + e.deltaX / zoom));
+    draw();
+    scheduleSnap();
+  } else {
+    // Vertical scroll — adjust BPM
+    const v = parseInt(bpmSlider.value) - Math.round(e.deltaY / 5);
+    bpmSlider.value = Math.min(220, Math.max(30, v));
+    bpmVal.textContent = bpmSlider.value;
+    if (audioReady) Tone.Transport.bpm.value = parseInt(bpmSlider.value);
+  }
+}, { passive: false });
+
+// Touch drag — scroll score, snap to bar on release
+let touchStartX = null;
+let touchStartScroll = null;
+viewport.addEventListener('touchstart', e => {
+  touchStartX      = e.touches[0].clientX;
+  touchStartScroll = scrollOffset;
+  clearTimeout(snapTimer);
+}, { passive: true });
+viewport.addEventListener('touchmove', e => {
+  if (touchStartX === null) return;
+  const dx = touchStartX - e.touches[0].clientX;
+  scrollOffset = Math.min(maxScroll(), Math.max(0, touchStartScroll + dx / zoom));
+  draw();
+}, { passive: true });
+viewport.addEventListener('touchend', () => { touchStartX = null; snapToBar(); });
+
+// Resize
+function resize() {
+  canvas.width  = viewport.clientWidth;
+  canvas.height = viewport.clientHeight;
+  draw();
+}
+window.addEventListener('resize', resize);
+resize();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js');
+}
+</script>
+</body>
+</html>
