@@ -195,6 +195,11 @@ function draw() {
   const sH  = stringH();
   const top = staffTop();
 
+  // Update measure counter in status
+  const beat = audioReady && playing ? currentBeat() : scrollBeat();
+  const measure = Math.floor(beat / BEATS_PER_MEASURE) + 1;
+  statusEl.textContent = `m${measure} · ${notes.length} notes · ${totalMeasures} bars`;
+
   // Visible virtual-x range
   const cx  = cursorX();
   const vx0 = scrollOffset - cx / zoom;
