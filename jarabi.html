@@ -636,6 +636,8 @@ progWrap.addEventListener('contextmenu', e => {
 // Keyboard
 document.addEventListener('keydown', e => {
   if (e.code === 'Space')        { e.preventDefault(); playing ? doPause() : doPlay(); }
+  if (e.metaKey && e.code === 'ArrowLeft')  { e.preventDefault(); doReset(); }
+  if (e.metaKey && e.code === 'ArrowRight') { e.preventDefault(); scrollOffset = maxScroll(); seekToScrollOffset(); }
   if (e.code === 'ArrowRight')   { e.preventDefault(); scrollOffset = Math.min(maxScroll(), scrollOffset + MEASURE_W); snapToBar(); seekToScrollOffset(); }
   if (e.code === 'ArrowLeft')    { e.preventDefault(); scrollOffset = Math.max(0, scrollOffset - MEASURE_W); snapToBar(); seekToScrollOffset(); }
   if (e.code === 'Home')         { doReset(); }
