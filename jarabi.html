@@ -39,6 +39,9 @@
   #btn-loop { background: #333; color: #ccc; }
   #btn-loop:hover { background: #444; }
   #btn-loop.active { background: #c04000; color: #fff; }
+  #btn-edit { background: #333; color: #ccc; }
+  #btn-edit:hover { background: #444; }
+  #btn-edit.active { background: #1a5fa8; color: #fff; }
   #prog-wrap {
     flex: 1; min-width: 80px; height: 6px; background: #333;
     border-radius: 3px; cursor: pointer; position: relative;
@@ -86,6 +89,8 @@
     <span class="val" id="swing-val">0%</span>
   </div>
   <button id="btn-loop" title="Toggle loop [L]  •  Set in [ ]  •  Set out [ ]">⟳ Loop</button>
+  <button id="btn-edit">✎ Edit</button>
+  <button id="btn-save" style="display:none;background:#2a7a2a;color:#fff">⬇ Save</button>
   <div id="prog-wrap" title="Left-click: jump  •  Right-click: set loop out">
     <div id="loop-region"></div>
     <div id="prog-fill"></div>
@@ -95,6 +100,11 @@
 
 <div id="viewport">
   <canvas id="canvas"></canvas>
+  <input id="fret-input" type="number" min="0" max="22" step="1"
+    style="display:none;position:absolute;width:52px;padding:4px 6px;
+           font-size:16px;font-weight:bold;font-family:monospace;
+           border:2px solid #e8a020;border-radius:4px;background:#fff;
+           text-align:center;z-index:10">
   <div id="end-overlay">
     <div id="end-msg">End of tab<br>
       <button onclick="doReset()">↺ Start over</button>
@@ -145,6 +155,11 @@ let notePart  = null;
 let loopEnabled   = false;
 let loopStartBeat = 0;
 let loopEndBeat   = 0;
+
+// Edit mode
+let editMode     = false;
+let selectedNote = null;
+let isDirty      = false;
 
 // UI refs
 const btnPlay    = document.getElementById('btn-play');
@@ -295,12 +310,19 @@ function draw() {
     const beatDist = Math.abs(note.beat - currentBeatVal);
     const isActive = beatDist < 0.3;
 
-    // White background behind number (so it sits on the staff line cleanly)
     const pad = fontSize * 0.35;
+    const noteW = pad * 2 + 2 + (note.fret > 9 ? fontSize * 0.4 : 0);
     ctx.fillStyle = BG;
-    ctx.fillRect(sx - pad - 1, sy - pad - 1, pad * 2 + 2 + (note.fret > 9 ? fontSize * 0.4 : 0), pad * 2 + 2);
+    ctx.fillRect(sx - pad - 1, sy - pad - 1, noteW, pad * 2 + 2);
 
-    ctx.fillStyle = isActive ? ACTIVE_COL : NOTE_COL;
+    // Selected note gets an orange ring in edit mode
+    if (editMode && note === selectedNote) {
+      ctx.strokeStyle = '#e8a020';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx - pad - 3, sy - pad - 3, noteW + 4, pad * 2 + 6);
+    }
+
+    ctx.fillStyle = isActive ? ACTIVE_COL : (note === selectedNote ? '#e8a020' : NOTE_COL);
     ctx.fillText(note.fret.toString(), sx, sy);
   }
 
@@ -650,7 +672,7 @@ document.addEventListener('keydown', e => {
 let dragStartX = null;
 let dragStartScroll = null;
 viewport.addEventListener('mousedown', e => {
-  if (e.button !== 0) return;
+  if (e.button !== 0 || editMode) return;
   dragStartX = e.clientX;
   dragStartScroll = scrollOffset;
   viewport.style.cursor = 'grabbing';
@@ -736,7 +758,164 @@ viewport.addEventListener('touchmove', e => {
 }, { passive: true });
 viewport.addEventListener('touchend', () => { touchStartX = null; snapToBar(); });
 
-// Resize
+// ── Edit mode ────────────────────────────────────────────────────────────────
+const btnEdit   = document.getElementById('btn-edit');
+const btnSave   = document.getElementById('btn-save');
+const fretInput = document.getElementById('fret-input');
+
+function toggleEditMode() {
+  editMode = !editMode;
+  btnEdit.classList.toggle('active', editMode);
+  btnEdit.textContent = editMode ? '✎ Editing' : '✎ Edit';
+  viewport.style.cursor = editMode ? 'crosshair' : '';
+  deselectNote();
+  if (editMode && playing) doPause();
+}
+
+function deselectNote() {
+  selectedNote = null;
+  fretInput.style.display = 'none';
+  draw();
+}
+
+function selectNote(note, canvasSX, canvasSY) {
+  selectedNote = note;
+  const rect = viewport.getBoundingClientRect();
+  // Position input above the note, clamped inside viewport
+  const x = Math.min(canvasSX + rect.left - 26, window.innerWidth - 80);
+  const y = Math.max(canvasSY + rect.top  - 44, rect.top + 4);
+  fretInput.style.left    = (x - rect.left) + 'px';
+  fretInput.style.top     = (y - rect.top)  + 'px';
+  fretInput.style.display = 'block';
+  fretInput.value = note.fret;
+  fretInput.focus();
+  fretInput.select();
+  draw();
+}
+
+function commitFret() {
+  if (!selectedNote) return;
+  const val = parseInt(fretInput.value);
+  if (!isNaN(val) && val >= 0 && val <= 22) {
+    selectedNote.fret = val;
+    selectedNote.midi = (window.OPEN_MIDI || [67,62,57,53,48,41])[selectedNote.string] + val;
+    markDirty();
+  }
+  deselectNote();
+}
+
+function markDirty() {
+  isDirty = true;
+  btnSave.style.display = '';
+  // Rebuild audio part so edits are heard immediately on next play
+  if (notePart) { notePart.dispose(); notePart = null; audioReady = false; btnPlay.disabled = false; }
+}
+
+// Hit detection: find note nearest to canvas coords (sx, sy)
+function noteAtScreen(sx, sy) {
+  const top  = staffTop();
+  const sH   = stringH();
+  const fs   = Math.max(8, NOTE_FONT * zoom);
+  const hitX = fs * 1.2;
+  const hitY = fs * 0.9;
+  let best = null, bestDist = Infinity;
+  for (const note of notes) {
+    const nx = vxToSX(beatToVX(note.beat));
+    const ny = top + note.string * sH;
+    if (Math.abs(sx - nx) < hitX && Math.abs(sy - ny) < hitY) {
+      const d = Math.hypot(sx - nx, sy - ny);
+      if (d < bestDist) { bestDist = d; best = note; }
+    }
+  }
+  return best;
+}
+
+// Add a new note by clicking on empty space in edit mode
+function addNoteAtScreen(sx, sy) {
+  const top = staffTop();
+  const sH  = stringH();
+  // Nearest string
+  let str = 0, minD = Infinity;
+  for (let s = 0; s < N_STRINGS; s++) {
+    const d = Math.abs(sy - (top + s * sH));
+    if (d < minD) { minD = d; str = s; }
+  }
+  if (minD > sH * 0.6) return;  // too far from any string
+  // Nearest beat (snap to 8th note = 0.5 beat)
+  const vx   = (sx - cursorX()) / zoom + scrollOffset;
+  const beat = Math.round(vx * BEATS_PER_MEASURE / MEASURE_W * 2) / 2;
+  if (beat < 0) return;
+  const measure = Math.floor(beat / BEATS_PER_MEASURE);
+  const bim     = parseFloat((beat % BEATS_PER_MEASURE).toFixed(4));
+  const OMIDI   = [67,62,57,53,48,41];
+  const newNote = { beat: parseFloat(beat.toFixed(4)), midi: OMIDI[str], string: str,
+                    fret: 0, measure, beat_in_measure: bim };
+  notes.push(newNote);
+  notes.sort((a, b) => a.beat - b.beat || a.string - b.string);
+  markDirty();
+  selectNote(newNote, sx, sy);
+}
+
+// Canvas click in edit mode
+viewport.addEventListener('click', e => {
+  if (!editMode) return;
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const hit = noteAtScreen(sx, sy);
+  if (hit) {
+    selectNote(hit, sx, sy);
+  } else {
+    deselectNote();
+    addNoteAtScreen(sx, sy);
+  }
+});
+
+// Fret input events
+fretInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter')  { e.preventDefault(); commitFret(); }
+  if (e.key === 'Escape') { deselectNote(); }
+  e.stopPropagation();  // don't trigger playback shortcuts
+});
+fretInput.addEventListener('blur', () => { if (selectedNote) commitFret(); });
+
+// Delete selected note
+document.addEventListener('keydown', e => {
+  if (!editMode || !selectedNote) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (document.activeElement === fretInput) return;
+    notes = notes.filter(n => n !== selectedNote);
+    deselectNote();
+    markDirty();
+  }
+});
+
+// Save: download updated notes.json
+function doSave() {
+  const out = {
+    bpm: parseInt(bpmSlider.value),
+    total_measures: totalMeasures,
+    open_midi: [67,62,57,53,48,41],
+    notes,
+    stems,
+    beams,
+  };
+  const blob = new Blob([JSON.stringify(out)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'notes.json';
+  a.click();
+  isDirty = false;
+}
+
+btnEdit.addEventListener('click', toggleEditMode);
+btnSave.addEventListener('click', doSave);
+
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (isDirty) doSave(); }
+});
+
+// ── Resize
 function resize() {
   canvas.width  = viewport.clientWidth;
   canvas.height = viewport.clientHeight;
