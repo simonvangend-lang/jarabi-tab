@@ -152,10 +152,10 @@ with pdfplumber.open(PDF) as pdf:
                     round(l['x0'], 0)
                     for l in vlines
                     if (abs(l['x0'] - l['x1']) < 2
-                        and l['height'] >= 0.5
+                        and l['height'] >= 0.3
                         and l['bottom'] < sys_bot - 5   # doesn't span full staff
                         and mx0 - 1 <= l['x0'] <= note_x1 + 1
-                        and l['top'] >= sys_top - 70
+                        and l['top'] >= sys_top - 120
                         and l['bottom'] <= sys_bot + 5)
                 ))
                 # Deduplicate within 3pt, exclude barlines / staff start
