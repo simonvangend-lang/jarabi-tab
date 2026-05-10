@@ -865,6 +865,7 @@ function addNoteAtScreen(sx, sy) {
 // Canvas click in edit mode
 viewport.addEventListener('click', e => {
   if (!editMode) return;
+  if (editPopup.contains(e.target)) return;  // click was on the popup/buttons
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
