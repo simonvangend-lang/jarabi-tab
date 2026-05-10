@@ -901,8 +901,8 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// Save: download updated notes.json
-function doSave() {
+// Save: POST to local server (in-place write), fallback to download
+async function doSave() {
   const out = {
     bpm: parseInt(bpmSlider.value),
     total_measures: totalMeasures,
@@ -911,12 +911,23 @@ function doSave() {
     stems,
     beams,
   };
-  const blob = new Blob([JSON.stringify(out)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'notes.json';
-  a.click();
-  isDirty = false;
+  const body = JSON.stringify(out);
+  try {
+    const r = await fetch('/save', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body });
+    if (!r.ok) throw new Error(r.status);
+    isDirty = false;
+    btnSave.textContent = '✔ Saved';
+    setTimeout(() => { btnSave.textContent = '⬇ Save'; }, 1500);
+  } catch {
+    // Not running locally — fall back to download
+    const blob = new Blob([body], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'notes.json';
+    a.click();
+    isDirty = false;
+  }
 }
 
 btnEdit.addEventListener('click', toggleEditMode);
