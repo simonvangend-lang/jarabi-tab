@@ -893,7 +893,8 @@ function deleteSelectedNote() {
   deselectNote();
   markDirty();
 }
-btnDelNote.addEventListener('click', e => { e.stopPropagation(); deleteSelectedNote(); });
+btnDelNote.addEventListener('mousedown', e => { e.preventDefault(); }); // keep fretInput focused so blur doesn't fire first
+btnDelNote.addEventListener('click',     e => { e.stopPropagation(); deleteSelectedNote(); });
 
 document.addEventListener('keydown', e => {
   if (!editMode || !selectedNote) return;
