@@ -100,11 +100,16 @@
 
 <div id="viewport">
   <canvas id="canvas"></canvas>
-  <input id="fret-input" type="number" min="0" max="22" step="1"
-    style="display:none;position:absolute;width:52px;padding:4px 6px;
-           font-size:16px;font-weight:bold;font-family:monospace;
-           border:2px solid #e8a020;border-radius:4px;background:#fff;
-           text-align:center;z-index:10">
+  <div id="edit-popup" style="display:none;position:absolute;z-index:10;display:none;align-items:center;gap:4px">
+    <input id="fret-input" type="number" min="0" max="22" step="1"
+      style="width:52px;padding:4px 6px;font-size:16px;font-weight:bold;
+             font-family:monospace;border:2px solid #e8a020;border-radius:4px;
+             background:#fff;text-align:center">
+    <button id="btn-del-note"
+      style="padding:4px 8px;background:#c04000;color:#fff;border:none;
+             border-radius:4px;cursor:pointer;font-size:14px;line-height:1"
+      title="Delete note">✕</button>
+  </div>
   <div id="end-overlay">
     <div id="end-msg">End of tab<br>
       <button onclick="doReset()">↺ Start over</button>
@@ -759,9 +764,11 @@ viewport.addEventListener('touchmove', e => {
 viewport.addEventListener('touchend', () => { touchStartX = null; snapToBar(); });
 
 // ── Edit mode ────────────────────────────────────────────────────────────────
-const btnEdit   = document.getElementById('btn-edit');
-const btnSave   = document.getElementById('btn-save');
-const fretInput = document.getElementById('fret-input');
+const btnEdit    = document.getElementById('btn-edit');
+const btnSave    = document.getElementById('btn-save');
+const editPopup  = document.getElementById('edit-popup');
+const fretInput  = document.getElementById('fret-input');
+const btnDelNote = document.getElementById('btn-del-note');
 
 function toggleEditMode() {
   editMode = !editMode;
@@ -774,19 +781,18 @@ function toggleEditMode() {
 
 function deselectNote() {
   selectedNote = null;
-  fretInput.style.display = 'none';
+  editPopup.style.display = 'none';
   draw();
 }
 
 function selectNote(note, canvasSX, canvasSY) {
   selectedNote = note;
-  const rect = viewport.getBoundingClientRect();
-  // Position input above the note, clamped inside viewport
-  const x = Math.min(canvasSX + rect.left - 26, window.innerWidth - 80);
-  const y = Math.max(canvasSY + rect.top  - 44, rect.top + 4);
-  fretInput.style.left    = (x - rect.left) + 'px';
-  fretInput.style.top     = (y - rect.top)  + 'px';
-  fretInput.style.display = 'block';
+  const popW = 100; // approx popup width
+  const x = Math.min(canvasSX - 26, canvas.width  - popW);
+  const y = Math.max(canvasSY - 44, 4);
+  editPopup.style.left    = x + 'px';
+  editPopup.style.top     = y + 'px';
+  editPopup.style.display = 'flex';
   fretInput.value = note.fret;
   fretInput.focus();
   fretInput.select();
@@ -879,14 +885,19 @@ fretInput.addEventListener('keydown', e => {
 });
 fretInput.addEventListener('blur', () => { if (selectedNote) commitFret(); });
 
-// Delete selected note
+// Delete selected note via ✕ button or Delete key (when input not focused)
+function deleteSelectedNote() {
+  if (!selectedNote) return;
+  notes = notes.filter(n => n !== selectedNote);
+  deselectNote();
+  markDirty();
+}
+btnDelNote.addEventListener('click', e => { e.stopPropagation(); deleteSelectedNote(); });
+
 document.addEventListener('keydown', e => {
   if (!editMode || !selectedNote) return;
-  if (e.key === 'Delete' || e.key === 'Backspace') {
-    if (document.activeElement === fretInput) return;
-    notes = notes.filter(n => n !== selectedNote);
-    deselectNote();
-    markDirty();
+  if ((e.key === 'Delete' || e.key === 'Backspace') && document.activeElement !== fretInput) {
+    deleteSelectedNote();
   }
 });
 
