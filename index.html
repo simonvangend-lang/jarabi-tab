@@ -42,6 +42,9 @@
   #btn-edit { background: #333; color: #ccc; }
   #btn-edit:hover { background: #444; }
   #btn-edit.active { background: #1a5fa8; color: #fff; }
+  .dur-btn { padding: 3px 7px; border: 1px solid #bbb; border-radius: 4px; cursor: pointer;
+             font-size: 15px; line-height: 1; background: #eee; color: #333; }
+  .dur-btn.active { background: #1a5fa8; color: #fff; border-color: #1a5fa8; }
   #prog-wrap {
     flex: 1; min-width: 80px; height: 6px; background: #333;
     border-radius: 3px; cursor: pointer; position: relative;
@@ -85,17 +88,36 @@
   </div>
   <div class="cg">
     <label>Swing</label>
-    <input type="range" id="swing-slider" min="0" max="100" value="0" step="5">
-    <span class="val" id="swing-val">0%</span>
+    <input type="range" id="swing-slider" min="0" max="100" value="30" step="5">
+    <span class="val" id="swing-val">30%</span>
   </div>
   <button id="btn-loop" title="Toggle loop [L]  •  Set in [ ]  •  Set out [ ]">⟳ Loop</button>
   <button id="btn-edit">✎ Edit</button>
+  <button id="btn-undo" style="display:none;background:#333;color:#ccc" disabled>↩ Undo</button>
   <button id="btn-save" style="display:none;background:#2a7a2a;color:#fff">⬇ Save</button>
   <div id="prog-wrap" title="Left-click: jump  •  Right-click: set loop out">
     <div id="loop-region"></div>
     <div id="prog-fill"></div>
   </div>
   <span id="status">Loading…</span>
+</div>
+
+<!-- Custom in-app prompt/confirm (works even when the browser is set to ignore native prompts) -->
+<div id="custom-dialog" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.45);
+     align-items:center;justify-content:center">
+  <div style="background:#fff;padding:18px 22px;border-radius:8px;min-width:300px;font-family:sans-serif;
+              box-shadow:0 10px 40px rgba(0,0,0,0.3)">
+    <div id="cd-msg" style="margin-bottom:10px;font-size:14px;color:#222"></div>
+    <input id="cd-input" type="text" autocomplete="off"
+           style="width:100%;padding:6px 8px;font-size:15px;border:1px solid #ccc;border-radius:4px;
+                  box-sizing:border-box;margin-bottom:12px">
+    <div style="text-align:right">
+      <button id="cd-cancel" style="padding:6px 14px;margin-right:8px;background:#eee;border:1px solid #bbb;
+                                    border-radius:4px;cursor:pointer">Cancel</button>
+      <button id="cd-ok"     style="padding:6px 14px;background:#1a5fa8;color:#fff;border:none;
+                                    border-radius:4px;cursor:pointer">OK</button>
+    </div>
+  </div>
 </div>
 
 <div id="viewport">
@@ -105,6 +127,11 @@
       style="width:52px;padding:4px 6px;font-size:16px;font-weight:bold;
              font-family:monospace;border:2px solid #e8a020;border-radius:4px;
              background:#fff;text-align:center">
+    <button class="dur-btn" data-dur="q" title="Quarter note">♩</button>
+    <button class="dur-btn" data-dur="e" title="Eighth note">♪</button>
+    <button class="dur-btn" data-dur="s" title="Sixteenth note">♬</button>
+    <button class="dur-btn" data-dur="t" title="Triplet">3</button>
+    <button id="btn-hammer" class="dur-btn" title="Toggle hammer-on / pull-off (slur to previous note on same string)" style="font-family:serif;font-style:italic">H</button>
     <button id="btn-del-note"
       style="padding:4px 8px;background:#c04000;color:#fff;border:none;
              border-radius:4px;cursor:pointer;font-size:14px;line-height:1"
@@ -162,9 +189,12 @@ let loopStartBeat = 0;
 let loopEndBeat   = 0;
 
 // Edit mode
-let editMode     = false;
-let selectedNote = null;
-let isDirty      = false;
+let editMode         = false;
+let selectedNote     = null;
+let selectedStemNotes = null;   // array when a stem (not individual note) is selected
+let isDirty          = false;
+let undoStack        = [];
+const MAX_UNDO       = 10;
 
 // UI refs
 const btnPlay    = document.getElementById('btn-play');
@@ -189,15 +219,23 @@ function staffH()    { return STAFF_H   * zoom; }
 function staffTop()  { return (canvas.height - staffH()) / 2; }
 
 // Virtual x for a beat (zoom=1 space)
-function beatToVX(beat) { return beat * MEASURE_W / BEATS_PER_MEASURE; }
+const BAR_PAD_FRAC = 0.0625;   // gap (fraction of MEASURE_W) visible just after each barline (symmetric around barline)
+function beatToVX(beat) {
+  // Continuous linear mapping (no jerk across barlines). Each beat is a fixed
+  // distance from the next; the offset shifts the whole timeline rightward so
+  // a visible padding appears between the barline and the first beat of each bar.
+  return beat * MEASURE_W / BEATS_PER_MEASURE + MEASURE_W * BAR_PAD_FRAC;
+}
 
 // Screen x from virtual x, given current scrollOffset
 function vxToSX(vx)  { return (vx - scrollOffset) * zoom + cursorX(); }
 
 // Max scrollOffset in virtual (zoom=1) space
 function maxScroll() {
-  return Math.max(0, totalBeats * MEASURE_W / BEATS_PER_MEASURE
-                     - (canvas.width - cursorX()) / zoom);
+  // Let the playhead travel all the way to the final beat of the piece.
+  // (Music will scroll off to the left of the cursor; the area right of the
+  // cursor can show empty space — that's expected at the end.)
+  return Math.max(0, totalBeats * MEASURE_W / BEATS_PER_MEASURE);
 }
 
 // ── Drawing ──────────────────────────────────────────────────────────────────
@@ -259,7 +297,7 @@ function draw() {
   ctx.setLineDash([3, 4]);
   for (let m = m0; m < m1; m++) {
     for (const accentBeat of [1.5, 3.0]) {
-      const sx = vxToSX(m * MEASURE_W + accentBeat * MEASURE_W / BEATS_PER_MEASURE);
+      const sx = vxToSX(beatToVX(m * BEATS_PER_MEASURE + accentBeat));
       if (sx < 0 || sx > W) continue;
       ctx.beginPath();
       ctx.moveTo(sx, top);
@@ -273,17 +311,39 @@ function draw() {
   const stemH  = Math.max(8, 18 * zoom);   // height above top string
   const beamH  = Math.max(2, 3.5 * zoom); // beam bar thickness
   ctx.lineWidth = Math.max(1, 1.2 * zoom);
+  // Build map: stem-key (×8 resolution) → lowest string holding a note at that beat
+  const stemLowest = new Map();
+  for (const n of notes) {
+    if (n.grace) continue;
+    const k = Math.round(n.beat * 8);
+    const cur = stemLowest.get(k);
+    if (cur === undefined || n.string > cur) stemLowest.set(k, n.string);
+  }
+  const selStemKey = selectedStemNotes && selectedStemNotes.length
+    ? Math.round(selectedStemNotes[0].beat * 8) : -1;
   for (const stem of stems) {
     const vx = beatToVX(stem.beat);
     if (vx < vx0 - 5 || vx > vx1 + 5) continue;
     const sx = vxToSX(vx);
-    const hasNote = noteStemSet && noteStemSet.has(Math.round(stem.beat * 8));
-    ctx.strokeStyle = hasNote ? '#444' : '#bbb';
+    const stemKey = Math.round(stem.beat * 8);
+    const isStemSel = stemKey === selStemKey;
+    const hasNote   = noteStemSet && noteStemSet.has(stemKey);
+    ctx.strokeStyle = isStemSel ? '#e8a020' : (hasNote ? '#444' : '#bbb');
+    ctx.lineWidth   = isStemSel ? Math.max(2, 2 * zoom) : Math.max(1, 1.2 * zoom);
+    // Bottom of stem: if there are notes at this beat, run the stem through the staff
+    // down to the lowest note (so it visually connects to the fret number). The BG
+    // rectangle drawn behind each note will mask the stem where it would cross a
+    // higher fret-number, so the stem appears to "terminate" at the lowest digit.
+    let bottomY = top;
+    if (hasNote && stemLowest.has(stemKey)) {
+      bottomY = top + stemLowest.get(stemKey) * sH;
+    }
     ctx.beginPath();
     ctx.moveTo(sx, top - stemH);
-    ctx.lineTo(sx, top);
+    ctx.lineTo(sx, bottomY);
     ctx.stroke();
   }
+  ctx.lineWidth = Math.max(1, 1.2 * zoom); // reset after loop
 
   // ── Beams ──────────────────────────────────────────────────────────────────
   ctx.fillStyle = '#333';
@@ -291,7 +351,26 @@ function draw() {
     const sx0 = vxToSX(beatToVX(beam.beat));
     const sx1 = vxToSX(beatToVX(beam.beat_end));
     if (sx1 < -2 || sx0 > W + 2) continue;
-    ctx.fillRect(sx0, top - stemH, sx1 - sx0, beamH);
+    const lv = beam.level || 1;
+    const by = top - stemH + (lv - 1) * (beamH + Math.max(2, 2 * zoom));
+    ctx.fillRect(sx0, by, sx1 - sx0, beamH);
+  }
+
+  // ── Triplet "3" markers ───────────────────────────────────────────────────
+  const tripletKeys = new Set(
+    notes.filter(n => n.duration === 't').map(n => Math.round(n.beat * 8))
+  );
+  if (tripletKeys.size > 0) {
+    ctx.fillStyle = '#555';
+    ctx.font = `bold ${Math.max(7, 9 * zoom)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    for (const stem of stems) {
+      if (!tripletKeys.has(Math.round(stem.beat * 8))) continue;
+      const vx = beatToVX(stem.beat);
+      if (vx < vx0 - 5 || vx > vx1 + 5) continue;
+      ctx.fillText('3', vxToSX(vx), top - stemH - 2 * zoom);
+    }
   }
 
   // ── Fret numbers ──────────────────────────────────────────────────────────
@@ -304,6 +383,25 @@ function draw() {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
+  // Group grace notes by (string, contiguous run) so we can draw slur arcs
+  const graceRuns = [];   // [{string, notes: [grace notes sorted by beat]}]
+  {
+    const byString = new Map();
+    for (const n of notes) if (n.grace) {
+      if (!byString.has(n.string)) byString.set(n.string, []);
+      byString.get(n.string).push(n);
+    }
+    for (const [s, arr] of byString) {
+      arr.sort((a, b) => a.beat - b.beat);
+      let run = [arr[0]];
+      for (let k = 1; k < arr.length; k++) {
+        if (arr[k].beat - run[run.length - 1].beat < 0.5) run.push(arr[k]);
+        else { if (run.length > 1) graceRuns.push({ string: s, notes: run }); run = [arr[k]]; }
+      }
+      if (run.length > 1) graceRuns.push({ string: s, notes: run });
+    }
+  }
+
   for (const note of notes) {
     const vx = beatToVX(note.beat);
     if (vx < vx0 - 20 || vx > vx1 + 20) continue;
@@ -315,8 +413,12 @@ function draw() {
     const beatDist = Math.abs(note.beat - currentBeatVal);
     const isActive = beatDist < 0.3;
 
-    const pad = fontSize * 0.35;
-    const noteW = pad * 2 + 2 + (note.fret > 9 ? fontSize * 0.4 : 0);
+    const isGrace = !!note.grace;
+    const noteFontSize = isGrace ? fontSize * 0.65 : fontSize;
+    if (isGrace) ctx.font = `bold ${noteFontSize}px monospace`;
+
+    const pad = noteFontSize * 0.35;
+    const noteW = pad * 2 + 2 + (note.fret > 9 ? noteFontSize * 0.4 : 0);
     ctx.fillStyle = BG;
     ctx.fillRect(sx - pad - 1, sy - pad - 1, noteW, pad * 2 + 2);
 
@@ -329,6 +431,47 @@ function draw() {
 
     ctx.fillStyle = isActive ? ACTIVE_COL : (note === selectedNote ? '#e8a020' : NOTE_COL);
     ctx.fillText(note.fret.toString(), sx, sy);
+    if (isGrace) ctx.font = `bold ${fontSize}px monospace`;
+  }
+
+  // ── Slur arcs from previous-on-same-string to hammer notes ────────────────
+  for (const note of notes) {
+    if (!note.hammer) continue;
+    const prev = notes
+      .filter(n => n.string === note.string && n.measure === note.measure && n.beat < note.beat)
+      .sort((a, b) => b.beat - a.beat)[0];
+    if (!prev) continue;
+    const vxA = beatToVX(prev.beat);
+    const vxB = beatToVX(note.beat);
+    if (vxB < vx0 - 20 || vxA > vx1 + 20) continue;
+    const sx0 = vxToSX(vxA);
+    const sx1 = vxToSX(vxB);
+    const sy = top + note.string * sH;
+    const arcH = Math.max(6, 10 * zoom);
+    const pad = Math.max(3, 4 * zoom);
+    ctx.strokeStyle = NOTE_COL;
+    ctx.lineWidth = Math.max(1.5, 2 * zoom);
+    ctx.beginPath();
+    ctx.moveTo(sx0 + pad, sy - arcH * 0.4);
+    ctx.quadraticCurveTo((sx0 + sx1) / 2, sy - arcH * 1.4, sx1 - pad, sy - arcH * 0.4);
+    ctx.stroke();
+  }
+
+  // ── Slur arcs over grace-note runs ──────────────────────────────────────────
+  for (const run of graceRuns) {
+    const vxA = beatToVX(run.notes[0].beat);
+    const vxB = beatToVX(run.notes[run.notes.length - 1].beat);
+    if (vxB < vx0 - 20 || vxA > vx1 + 20) continue;
+    const sx0 = vxToSX(vxA);
+    const sx1 = vxToSX(vxB);
+    const sy = top + run.string * sH;
+    const arcH = Math.max(4, 6 * zoom);
+    ctx.strokeStyle = NOTE_COL;
+    ctx.lineWidth = Math.max(1, 1.2 * zoom);
+    ctx.beginPath();
+    ctx.moveTo(sx0, sy + arcH * 0.6);
+    ctx.quadraticCurveTo((sx0 + sx1) / 2, sy + arcH * 2.4, sx1, sy + arcH * 0.6);
+    ctx.stroke();
   }
 
   // ── Cursor line ────────────────────────────────────────────────────────────
@@ -369,7 +512,7 @@ fetch('notes.json')
     bpmVal.textContent = data.bpm;
 
     // Which stem beats have a note (×8 resolution = 0.125-beat grid)
-    noteStemSet = new Set(notes.map(n => Math.round(n.beat * 8)));
+    noteStemSet = new Set(notes.filter(n => !n.grace).map(n => Math.round(n.beat * 8)));
 
 
     statusEl.textContent = `${notes.length} notes · ${totalMeasures} bars`;
@@ -462,10 +605,12 @@ async function initAudio() {
       const synths = makePluckSynths(eq);
       triggerNote = (note, time, vel) => {
         const freq = Tone.Frequency(note.midi, 'midi').toFrequency();
+        // Hammer-on / pull-off: no fresh pluck — play much softer
+        const v = note.hammer ? vel * 0.35 : vel;
         if (note.string >= 4)
-          synths[note.string].triggerAttackRelease(freq, '8n', time, vel);
+          synths[note.string].triggerAttackRelease(freq, '8n', time, v);
         else
-          synths[note.string].triggerAttack(freq, time, vel);
+          synths[note.string].triggerAttack(freq, time, v);
       };
       statusEl.textContent = `${notes.length} notes · ${totalMeasures} bars`;
     }
@@ -476,7 +621,7 @@ async function initAudio() {
 
     notePart = new Tone.Part(
       (time, note) => triggerNote(note, time, noteVelocity(note.beat_in_measure)),
-      notes.map(note => [`0:0:${Math.round(note.beat * 4)}`, note]));
+      notes.map(note => [Math.round(note.beat * Tone.Transport.PPQ) + 'i', note]));
     notePart.start(0);
 
     Tone.Transport.schedule(() => {
@@ -514,10 +659,15 @@ function animLoop() {
 }
 
 async function doPlay() {
+  const wasReady = audioReady;
   await initAudio();
   if (playing) return;
   if (Tone.Transport.state === 'stopped' && currentBeat() >= totalBeats - 0.5) {
     doReset(); return;
+  }
+  // If audio was just initialised, seek to wherever the score is scrolled to
+  if (!wasReady && scrollOffset > 0) {
+    Tone.Transport.ticks = Math.round(scrollBeat() * Tone.Transport.PPQ);
   }
   Tone.Transport.start();
   playing = true;
@@ -660,18 +810,195 @@ progWrap.addEventListener('contextmenu', e => {
   updateLoopUI(); applyLoop();
 });
 
+// In-app prompt/confirm (avoids the browser's native dialog, which can be disabled per-site)
+const cdEl     = document.getElementById('custom-dialog');
+const cdMsg    = document.getElementById('cd-msg');
+const cdInput  = document.getElementById('cd-input');
+const cdOk     = document.getElementById('cd-ok');
+const cdCancel = document.getElementById('cd-cancel');
+let _cdResolve = null;
+function _cdClose(value) {
+  cdEl.style.display = 'none';
+  const r = _cdResolve; _cdResolve = null;
+  if (r) r(value);
+}
+cdOk.addEventListener('click', () => _cdClose(cdInput.value));
+cdCancel.addEventListener('click', () => _cdClose(null));
+cdInput.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Enter')      { e.preventDefault(); _cdClose(cdInput.value); }
+  if (e.key === 'Escape')     { e.preventDefault(); _cdClose(null); }
+});
+function customPrompt(message, defaultValue = '') {
+  return new Promise(resolve => {
+    cdMsg.textContent = message;
+    cdInput.value = defaultValue;
+    cdInput.style.display = '';
+    cdEl.style.display = 'flex';
+    _cdResolve = resolve;
+    setTimeout(() => { cdInput.focus(); cdInput.select(); }, 0);
+  });
+}
+function customConfirm(message) {
+  return new Promise(resolve => {
+    cdMsg.textContent = message;
+    cdInput.style.display = 'none';
+    cdEl.style.display = 'flex';
+    _cdResolve = v => resolve(v !== null);   // OK→true, Cancel→false
+    setTimeout(() => cdOk.focus(), 0);
+  });
+}
+
 // Keyboard
-document.addEventListener('keydown', e => {
+document.addEventListener('keydown', async e => {
+  // (registered with capture=true below)
+  // Capture-phase early preventDefault for Cmd-shortcuts so Firefox's menu
+  // accelerators (Tools/etc.) don't swallow them.
+  if ((e.metaKey || e.ctrlKey) &&
+      (e.code === 'KeyJ' || e.code === 'KeyD' || e.code === 'KeyI' || e.code === 'KeyX'
+       || e.code === 'ArrowUp' || e.code === 'ArrowDown')) {
+    e.preventDefault();
+  }
   if (e.code === 'Space')        { e.preventDefault(); playing ? doPause() : doPlay(); }
   if (e.metaKey && e.code === 'ArrowLeft')  { e.preventDefault(); doReset(); }
   if (e.metaKey && e.code === 'ArrowRight') { e.preventDefault(); scrollOffset = (totalMeasures - 1) * MEASURE_W; seekToScrollOffset(); }
   if (e.code === 'ArrowRight')   { e.preventDefault(); scrollOffset = Math.min(maxScroll(), scrollOffset + MEASURE_W); snapToBar(); seekToScrollOffset(); }
   if (e.code === 'ArrowLeft')    { e.preventDefault(); scrollOffset = Math.max(0, scrollOffset - MEASURE_W); snapToBar(); seekToScrollOffset(); }
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyX') {
+    e.preventDefault();
+    if (!editMode) return;
+    const posStr = await customPrompt('Delete bar number (everything after shifts back):');
+    if (posStr === null) return;
+    const userBar = parseInt(posStr, 10);
+    const pos = userBar - 1;
+    if (isNaN(pos) || pos < 0 || pos >= totalMeasures) return;
+    if (!(await customConfirm(`Delete bar ${userBar} and all its contents?`))) return;
+    pushUndo();
+    notes = notes.filter(n => n.measure !== pos);
+    stems = stems.filter(s => s.measure !== pos);
+    beams = beams.filter(b => Math.floor(b.beat / BEATS_PER_MEASURE) !== pos);
+    for (const n of notes) {
+      if (n.measure > pos) { n.measure -= 1; n.beat -= BEATS_PER_MEASURE; }
+    }
+    for (const s of stems) {
+      if (s.measure > pos) { s.measure -= 1; s.beat -= BEATS_PER_MEASURE; }
+    }
+    for (const b of beams) {
+      if (Math.floor(b.beat / BEATS_PER_MEASURE) > pos) {
+        b.beat -= BEATS_PER_MEASURE;
+        b.beat_end -= BEATS_PER_MEASURE;
+      }
+    }
+    totalMeasures -= 1;
+    totalBeats = totalMeasures * BEATS_PER_MEASURE;
+    noteStemSet = new Set(notes.filter(n => !n.grace).map(n => Math.round(n.beat * 8)));
+    deselectNote();
+    markDirty();
+    draw();
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyI') {
+    e.preventDefault();
+    if (!editMode) return;
+    const posStr = await customPrompt('Insert NEW bar at position (existing bar there will shift forward):');
+    if (posStr === null) return;
+    const pos = parseInt(posStr, 10) - 1;
+    if (isNaN(pos) || pos < 0 || pos > totalMeasures) return;
+    const srcStr = await customPrompt('Optionally copy contents FROM bar (leave blank for empty):');
+    let srcNotesCopy = [];
+    if (srcStr !== null && srcStr.trim() !== '') {
+      const src = parseInt(srcStr, 10) - 1;
+      if (isNaN(src) || src < 0 || src >= totalMeasures) return;
+      srcNotesCopy = notes.filter(n => n.measure === src).map(n => ({ ...n }));
+    }
+    pushUndo();
+    // Shift everything >= pos forward by 1 measure
+    for (const n of notes) {
+      if (n.measure >= pos) { n.measure += 1; n.beat += BEATS_PER_MEASURE; }
+    }
+    for (const s of stems) {
+      if (s.measure >= pos) { s.measure += 1; s.beat += BEATS_PER_MEASURE; }
+    }
+    for (const b of beams) {
+      if (Math.floor(b.beat / BEATS_PER_MEASURE) >= pos) {
+        b.beat += BEATS_PER_MEASURE;
+        b.beat_end += BEATS_PER_MEASURE;
+      }
+    }
+    totalMeasures += 1;
+    totalBeats = totalMeasures * BEATS_PER_MEASURE;
+    // Add copied source notes at the new bar
+    for (const sn of srcNotesCopy) {
+      const copy = { ...sn };
+      copy.measure = pos;
+      copy.beat = pos * BEATS_PER_MEASURE + sn.beat_in_measure;
+      notes.push(copy);
+    }
+    notes.sort((a, b) => a.beat - b.beat || a.string - b.string);
+    noteStemSet = new Set(notes.filter(n => !n.grace).map(n => Math.round(n.beat * 8)));
+    deselectNote();
+    markDirty();
+    draw();
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyD') {
+    e.preventDefault();
+    if (!editMode) return;
+    const srcStr = await customPrompt('Copy notes FROM bar number:');
+    if (srcStr === null) return;
+    const src = parseInt(srcStr, 10) - 1;
+    const dstStr = await customPrompt('Copy TO bar number (will replace contents):');
+    if (dstStr === null) return;
+    const dst = parseInt(dstStr, 10) - 1;
+    if (isNaN(src) || isNaN(dst) || src < 0 || dst < 0
+        || src >= totalMeasures || dst >= totalMeasures || src === dst) return;
+    pushUndo();
+    // Remove existing notes in destination bar
+    notes = notes.filter(n => n.measure !== dst);
+    // Copy notes from source bar (deep copy), retarget measure and beat
+    const srcNotes = notes.filter(n => n.measure === src);
+    const offset = (dst - src) * BEATS_PER_MEASURE;
+    for (const n of srcNotes) {
+      const copy = { ...n };
+      copy.measure = dst;
+      copy.beat = n.beat + offset;
+      notes.push(copy);
+    }
+    notes.sort((a, b) => a.beat - b.beat || a.string - b.string);
+    noteStemSet = new Set(notes.filter(n => !n.grace).map(n => Math.round(n.beat * 8)));
+    deselectNote();
+    markDirty();
+    draw();
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.code === 'KeyJ') {
+    e.preventDefault();
+    const ans = await customPrompt('Jump to bar number:');
+    if (ans !== null) {
+      const bar = parseInt(ans, 10);
+      if (!isNaN(bar) && bar >= 1 && bar <= totalMeasures) {
+        scrollOffset = Math.min(maxScroll(), Math.max(0, (bar - 1) * MEASURE_W));
+        snapToBar(); seekToScrollOffset();
+      }
+    }
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && (e.code === 'ArrowUp' || e.code === 'ArrowDown')) {
+    e.preventDefault();
+    const step = e.shiftKey ? 2 : 10;
+    const delta = e.code === 'ArrowUp' ? step : -step;
+    const v = Math.min(220, Math.max(30, parseInt(bpmSlider.value) + delta));
+    bpmSlider.value = v;
+    bpmVal.textContent = v;
+    if (audioReady) Tone.Transport.bpm.value = v;
+    markDirtyNoRebuild();
+    return;
+  }
   if (e.code === 'Home')         { doReset(); }
   if (e.key  === 'l'||e.key==='L') { toggleLoop(); }
   if (e.code === 'BracketLeft')  { e.preventDefault(); setLoopIn(); }
   if (e.code === 'BracketRight') { e.preventDefault(); setLoopOut(); }
-});
+}, true);  // capture phase: run before Firefox's menu-accelerator default
 
 // Canvas drag to pan score (mouseup seeks transport)
 let dragStartX = null;
@@ -765,35 +1092,72 @@ viewport.addEventListener('touchend', () => { touchStartX = null; snapToBar(); }
 
 // ── Edit mode ────────────────────────────────────────────────────────────────
 const btnEdit    = document.getElementById('btn-edit');
+const btnUndo    = document.getElementById('btn-undo');
 const btnSave    = document.getElementById('btn-save');
 const editPopup  = document.getElementById('edit-popup');
 const fretInput  = document.getElementById('fret-input');
 const btnDelNote = document.getElementById('btn-del-note');
+const btnHammer  = document.getElementById('btn-hammer');
 
 function toggleEditMode() {
   editMode = !editMode;
   btnEdit.classList.toggle('active', editMode);
   btnEdit.textContent = editMode ? '✎ Editing' : '✎ Edit';
   viewport.style.cursor = editMode ? 'crosshair' : '';
+  btnUndo.style.display = editMode ? '' : 'none';
+  if (!editMode) { undoStack = []; updateUndoBtn(); }
   deselectNote();
   if (editMode && playing) doPause();
 }
 
+function pushUndo() {
+  undoStack.push({
+    notes: notes.map(n => ({ ...n })),
+    stems: stems.map(s => ({ ...s })),
+    beams: beams.map(b => ({ ...b })),
+  });
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+  updateUndoBtn();
+}
+
+function updateUndoBtn() {
+  btnUndo.disabled = undoStack.length === 0;
+  btnUndo.textContent = undoStack.length ? `↩ Undo (${undoStack.length})` : '↩ Undo';
+}
+
+function doUndo() {
+  if (!undoStack.length) return;
+  const state = undoStack.pop();
+  notes = state.notes;
+  stems = state.stems;
+  beams = state.beams;
+  noteStemSet = new Set(notes.filter(n => !n.grace).map(n => Math.round(n.beat * 8)));
+  deselectNote();
+  markDirty();
+  updateUndoBtn();
+  draw();
+}
+
 function deselectNote() {
-  selectedNote = null;
+  selectedNote     = null;
+  selectedStemNotes = null;
+  fretInput.style.display = '';
   editPopup.style.display = 'none';
   draw();
 }
 
 function selectNote(note, canvasSX, canvasSY) {
-  selectedNote = note;
-  const popW = 100; // approx popup width
+  selectedNote      = note;
+  selectedStemNotes = null;           // clear any stem selection
+  fretInput.style.display = '';       // restore if hidden by stem selection
+  const popW = 220;
   const x = Math.min(canvasSX - 26, canvas.width  - popW);
   const y = Math.max(canvasSY - 44, 4);
   editPopup.style.left    = x + 'px';
   editPopup.style.top     = y + 'px';
   editPopup.style.display = 'flex';
   fretInput.value = note.fret;
+  updateDurButtons();
   fretInput.focus();
   fretInput.select();
   draw();
@@ -802,7 +1166,8 @@ function selectNote(note, canvasSX, canvasSY) {
 function commitFret() {
   if (!selectedNote) return;
   const val = parseInt(fretInput.value);
-  if (!isNaN(val) && val >= 0 && val <= 22) {
+  if (!isNaN(val) && val >= 0 && val <= 22 && val !== selectedNote.fret) {
+    pushUndo();
     selectedNote.fret = val;
     selectedNote.midi = (window.OPEN_MIDI || [67,62,57,53,48,41])[selectedNote.string] + val;
     markDirty();
@@ -816,14 +1181,52 @@ function markDirty() {
   // Rebuild audio part so edits are heard immediately on next play
   if (notePart) { notePart.dispose(); notePart = null; audioReady = false; btnPlay.disabled = false; }
 }
+// Lighter version: flag as dirty without tearing down the audio engine
+// (use for changes that propagate live, e.g. tempo, swing).
+function markDirtyNoRebuild() {
+  isDirty = true;
+  btnSave.style.display = '';
+}
+
+// Hit detection: find stem nearest to sx (within hit radius), ignoring y
+function stemAtScreen(sx, sy) {
+  const top   = staffTop();
+  const sH    = stringH();
+  const sTemH = Math.max(8, 18 * zoom);
+  // Only register hits ABOVE the top staff line — clicking on the staff itself adds notes
+  if (sy < top - sTemH - 10 || sy >= top) return null;
+  const hitX = Math.max(6, 9 * zoom);
+  let best = null, bestDist = Infinity;
+  for (const stem of stems) {
+    const dist = Math.abs(sx - vxToSX(beatToVX(stem.beat)));
+    if (dist < hitX && dist < bestDist) { bestDist = dist; best = stem; }
+  }
+  return best;
+}
+
+function selectStem(stem, canvasSX, canvasSY) {
+  selectedNote      = null;
+  selectedStemNotes = notes.filter(n => Math.round(n.beat * 8) === Math.round(stem.beat * 8));
+  if (!selectedStemNotes.length) return;
+  fretInput.style.display = 'none';   // fret doesn't apply to a multi-note stem
+  const popW = 160;
+  const stemSX = vxToSX(beatToVX(stem.beat));
+  const x = Math.min(stemSX - 20, canvas.width - popW);
+  const y = Math.max(4, staffTop() - Math.max(8, 18 * zoom) - 36);
+  editPopup.style.left    = x + 'px';
+  editPopup.style.top     = y + 'px';
+  editPopup.style.display = 'flex';
+  updateDurButtons();
+  draw();
+}
 
 // Hit detection: find note nearest to canvas coords (sx, sy)
 function noteAtScreen(sx, sy) {
   const top  = staffTop();
   const sH   = stringH();
   const fs   = Math.max(8, NOTE_FONT * zoom);
-  const hitX = fs * 1.2;
-  const hitY = fs * 0.9;
+  const hitX = fs * 1.5;
+  const hitY = Math.min(fs * 1.3, sH * 0.48); // generous but won't bleed onto adjacent string
   let best = null, bestDist = Infinity;
   for (const note of notes) {
     const nx = vxToSX(beatToVX(note.beat));
@@ -856,6 +1259,7 @@ function addNoteAtScreen(sx, sy) {
   const OMIDI   = [67,62,57,53,48,41];
   const newNote = { beat: parseFloat(beat.toFixed(4)), midi: OMIDI[str], string: str,
                     fret: 0, measure, beat_in_measure: bim };
+  pushUndo();
   notes.push(newNote);
   notes.sort((a, b) => a.beat - b.beat || a.string - b.string);
   markDirty();
@@ -865,16 +1269,22 @@ function addNoteAtScreen(sx, sy) {
 // Canvas click in edit mode
 viewport.addEventListener('click', e => {
   if (!editMode) return;
-  if (editPopup.contains(e.target)) return;  // click was on the popup/buttons
+  if (e.target === fretInput) return;  // fret input handles itself; all buttons use stopPropagation
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
   const hit = noteAtScreen(sx, sy);
+
   if (hit) {
     selectNote(hit, sx, sy);
   } else {
-    deselectNote();
-    addNoteAtScreen(sx, sy);
+    const stemHit = stemAtScreen(sx, sy);
+    if (stemHit) {
+      selectStem(stemHit, sx, sy);
+    } else {
+      deselectNote();
+      addNoteAtScreen(sx, sy);
+    }
   }
 });
 
@@ -889,12 +1299,114 @@ fretInput.addEventListener('blur', () => { if (selectedNote) commitFret(); });
 // Delete selected note via ✕ button or Delete key (when input not focused)
 function deleteSelectedNote() {
   if (!selectedNote) return;
+  pushUndo();
   notes = notes.filter(n => n !== selectedNote);
   deselectNote();
   markDirty();
 }
 btnDelNote.addEventListener('mousedown', e => { e.preventDefault(); }); // keep fretInput focused so blur doesn't fire first
 btnDelNote.addEventListener('click',     e => { e.stopPropagation(); deleteSelectedNote(); });
+
+btnHammer.addEventListener('mousedown', e => { e.preventDefault(); });
+btnHammer.addEventListener('click', e => {
+  e.stopPropagation();
+  const targets = selectedStemNotes || (selectedNote ? [selectedNote] : null);
+  if (!targets) return;
+  pushUndo();
+  // Toggle: if any target lacks hammer flag, set them all; otherwise clear
+  const allOn = targets.every(n => n.hammer);
+  targets.forEach(n => { if (allOn) delete n.hammer; else n.hammer = true; });
+  updateDurButtons();
+  markDirty();
+  draw();
+});
+
+// Duration buttons
+function updateDurButtons() {
+  let dur = null;
+  if (selectedNote) {
+    dur = selectedNote.duration ?? null;  // only highlight if explicitly set
+  } else if (selectedStemNotes) {
+    const durs = [...new Set(selectedStemNotes.map(n => n.duration ?? null))];
+    dur = durs.length === 1 ? durs[0] : null;
+  }
+  document.querySelectorAll('.dur-btn').forEach(btn => {
+    if (btn.id === 'btn-hammer') return;
+    btn.classList.toggle('active', btn.dataset.dur === dur);
+  });
+  // Hammer button active state
+  const hammerOn = selectedNote ? !!selectedNote.hammer
+                 : selectedStemNotes ? selectedStemNotes.every(n => n.hammer)
+                 : false;
+  btnHammer.classList.toggle('active', hammerOn);
+}
+
+function setDuration(dur) {
+  const targets = selectedStemNotes || (selectedNote ? [selectedNote] : null);
+  if (!targets) return;
+  pushUndo();
+  targets.forEach(n => { n.duration = dur; });
+  updateDurButtons();
+  rebuildStemsAndBeams();
+  markDirty();
+  draw();
+}
+
+function rebuildStemsAndBeams() {
+  // Only touch measures that contain at least one note with an explicit duration.
+  // All other measures keep their original parsed beams unchanged.
+  const explicitMeasures = new Set(
+    notes.filter(n => n.duration != null).map(n => n.measure)
+  );
+  if (explicitMeasures.size === 0) return;
+
+  const durOrder = { t: 0, s: 1, e: 2, q: 3 };
+
+  // Keep beams from unedited measures
+  const newBeams = beams.filter(b => !explicitMeasures.has(Math.floor(b.beat / BEATS_PER_MEASURE)));
+
+  // Recompute beams only for explicitly-edited measures
+  for (const m of explicitMeasures) {
+    const mNotes = notes.filter(n => n.measure === m && !n.grace);
+    const beatInfo = new Map();
+    for (const note of mNotes) {
+      const key = Math.round(note.beat * 8);
+      // Notes without an explicit duration are not beamable — treat as quarter
+      const dur = note.duration ?? 'q';
+      if (!beatInfo.has(key)) {
+        beatInfo.set(key, { beat: note.beat, dur });
+      } else {
+        const info = beatInfo.get(key);
+        if ((durOrder[dur] ?? 3) < (durOrder[info.dur] ?? 3)) info.dur = dur;
+      }
+    }
+    const infos = [...beatInfo.values()].sort((a, b) => a.beat - b.beat);
+    let i = 0;
+    while (i < infos.length) {
+      if (infos[i].dur === 'q') { i++; continue; }
+      const groupStart = i;
+      let j = i + 1;
+      while (j < infos.length && infos[j].dur !== 'q') j++;
+      if (j - groupStart >= 2) {
+        for (let k = groupStart; k < j - 1; k++) {
+          newBeams.push({ beat: infos[k].beat, beat_end: infos[k + 1].beat, level: 1 });
+          if (infos[k].dur === 's' && infos[k + 1].dur === 's')
+            newBeams.push({ beat: infos[k].beat, beat_end: infos[k + 1].beat, level: 2 });
+        }
+      }
+      i = j;
+    }
+  }
+
+  beams = newBeams;
+  noteStemSet = new Set(notes.filter(n => !n.grace).map(n => Math.round(n.beat * 8)));
+}
+
+document.querySelectorAll('.dur-btn').forEach(btn => {
+  if (btn.id === 'btn-hammer') return;   // hammer button has its own click handler
+  btn.addEventListener('mousedown', e => { e.preventDefault(); }); // prevent blur on fretInput
+  btn.addEventListener('click', e => { e.stopPropagation(); setDuration(btn.dataset.dur); });
+});
 
 document.addEventListener('keydown', e => {
   if (!editMode || !selectedNote) return;
@@ -933,10 +1445,12 @@ async function doSave() {
 }
 
 btnEdit.addEventListener('click', toggleEditMode);
+btnUndo.addEventListener('click', doUndo);
 btnSave.addEventListener('click', doSave);
 
 document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (isDirty) doSave(); }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); if (editMode) doUndo(); }
 });
 
 // ── Resize
@@ -949,7 +1463,17 @@ window.addEventListener('resize', resize);
 resize();
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js');
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(reg => {
+    // Check for updated SW on every page load
+    reg.update();
+    // When a new SW takes over, auto-reload once so the fresh assets show
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloaded) return;
+      reloaded = true;
+      location.reload();
+    });
+  });
 }
 </script>
 </body>

@@ -21,7 +21,41 @@ def is_fret(t):
 all_notes    = []
 all_stems    = []
 all_beams    = []
+all_grace    = []          # list of (measure_global_raw, string, frets, x0_first_digit, bar_x0, bar_x1)
 measure_idx  = 0
+
+# Per-page set of (round(x0,1)) values for digit chars that belong to a
+# tight grace-note cluster. We need this BEFORE building visible_xs so that
+# those characters are excluded from the regular-note parsing.
+def find_grace_skip_positions(page):
+    """Return a set of (round(x0,1), round(y,0)) tuples for digit chars that are
+    part of tight grace clusters. Per-(x,y) so chord notes on other strings at the
+    same x are not affected."""
+    digits = [c for c in page.chars
+              if c['text'].isdigit() and round(c['size'], 1) == 10.4
+              and c.get('non_stroking_color') != (1.0, 1.0, 1.0)]
+    rows = {}
+    for c in digits:
+        key = round(c['top'])
+        rows.setdefault(key, []).append(c)
+    skip = set()
+    for arr in rows.values():
+        arr.sort(key=lambda c: c['x0'])
+        i = 0
+        while i < len(arr):
+            cl = [arr[i]]
+            while i + 1 < len(arr) and arr[i+1]['x0'] - arr[i]['x1'] < 8:
+                cl.append(arr[i+1]); i += 1
+            if len(cl) >= 2:
+                seq = ''.join(c['text'] for c in cl)
+                x0 = cl[0]['x0']; x1 = cl[-1]['x1']; width = x1 - x0
+                is_grace = (len(cl) >= 3
+                            or (len(cl) == 2 and (int(seq) > 22 or width > 13.5)))
+                if is_grace:
+                    for c in cl:
+                        skip.add((round(c['x0'], 1), round(c['top'])))
+            i += 1
+    return skip
 
 with pdfplumber.open(PDF) as pdf:
     for page_num, page in enumerate(pdf.pages):
@@ -32,8 +66,14 @@ with pdfplumber.open(PDF) as pdf:
             if ch.get('non_stroking_color') != (1.0, 1.0, 1.0)
         ]
         words       = page.extract_words(x_tolerance=3, y_tolerance=3)
-        visible_xs  = set(round(float(ch['x0']), 1)
-                          for ch in visible_chars if is_fret(ch['text']))
+        grace_skip  = find_grace_skip_positions(page)
+        # (x, y) pairs of visible single-digit chars, minus grace-cluster ones
+        visible_keys = set(
+            (round(float(ch['x0']), 1), round(float(ch['top'])))
+            for ch in visible_chars if is_fret(ch['text'])
+        ) - grace_skip
+        # Keep a simple x-only set for quick rejection (any char with this x exists somewhere)
+        visible_xs = set(k[0] for k in visible_keys)
         vlines      = page.lines
         curves      = page.curves   # beam rectangles live here
 
@@ -70,9 +110,22 @@ with pdfplumber.open(PDF) as pdf:
             if page_num > 0 and y < 60: continue
             if page_num == 0 and x0 < 112 and w['text'] == '4': continue
             if round(x0, 1) not in visible_xs: continue
+            # Reject if this (x, y) is part of a grace cluster — but only when the
+            # word's first digit matches a grace-skip key (chord notes on other
+            # strings at the same x stay visible).
+            if (round(x0, 1), round(y)) not in visible_keys: continue
             # Use horizontal centre for stem matching (x0 is left edge, biases left)
             x_mid = (x0 + float(w['x1'])) / 2
             fret_words.append((x_mid, y, int(w['text'])))
+
+        # ── Find grace clusters per page (for attaching as grace notes later) ──
+        page_digits = [c for c in page.chars
+                       if c['text'].isdigit() and round(c['size'], 1) == 10.4
+                       and c.get('non_stroking_color') != (1.0, 1.0, 1.0)]
+
+        # Per-bar stem data, so the grace pass can snap to actual stem positions
+        # instead of using a uniform-x heuristic.
+        bar_stems = {}   # global_m -> [(stem_x, stem_bim), ...]
 
         # ── Process each system ──────────────────────────────────────────────
         for sys_top, sys_bot, staff_x0, staff_x1 in systems_h:
@@ -155,7 +208,7 @@ with pdfplumber.open(PDF) as pdf:
                         and l['height'] >= 0.3
                         and l['bottom'] < sys_bot - 5   # doesn't span full staff
                         and mx0 - 1 <= l['x0'] <= note_x1 + 1
-                        and l['top'] >= sys_top - 120
+                        and l['top'] >= sys_top - 50   # exclude vlines from staff above (was -120, too generous)
                         and l['bottom'] <= sys_bot + 5)
                 ))
                 # Deduplicate within 3pt, exclude barlines / staff start
@@ -188,6 +241,9 @@ with pdfplumber.open(PDF) as pdf:
                 for x in stem_xs:
                     stem_beat[x] = cur
                     cur += 0.5 if is_beamed(x) else 1.0
+
+                # Record per-bar stems for grace-pass snapping
+                bar_stems[global_m] = [(x, stem_beat[x]) for x in stem_xs]
 
                 # Record beam pairs (each beam rectangle → one {beat, beat_end} entry)
                 for beam in sys_beams:
@@ -235,6 +291,47 @@ with pdfplumber.open(PDF) as pdf:
                         'beat_in_measure': round(b, 4),
                     })
 
+            # ── Grace-note clusters in this system ──────────────────────────
+            # Group digits in this system by string row, find tight x-clusters
+            sys_grace_digits = [c for c in page_digits
+                                if sys_top - 5 <= c['top'] <= sys_bot + 5]
+            grace_rows = {}
+            for c in sys_grace_digits:
+                if not staff_ys: continue
+                si = min(range(len(staff_ys)), key=lambda i: abs(staff_ys[i] - c['top']))
+                if abs(staff_ys[si] - c['top']) > 5: continue
+                grace_rows.setdefault(max(0, min(5, si)), []).append(c)
+            for st, arr in grace_rows.items():
+                arr.sort(key=lambda c: c['x0'])
+                i = 0
+                while i < len(arr):
+                    cl = [arr[i]]
+                    while i + 1 < len(arr) and arr[i+1]['x0'] - arr[i]['x1'] < 8:
+                        cl.append(arr[i+1]); i += 1
+                    if len(cl) >= 2:
+                        seq = ''.join(c['text'] for c in cl)
+                        x0 = cl[0]['x0']; x1 = cl[-1]['x1']; width = x1 - x0
+                        is_grace = (len(cl) >= 3
+                                    or (len(cl) == 2 and (int(seq) > 22 or width > 13.5)))
+                        if is_grace:
+                            frets = [int(c['text']) for c in cl]
+                            mid_x = (x0 + x1) / 2
+                            for mi, (mx0, mx1) in enumerate(measures):
+                                if mx0 <= mid_x <= mx1:
+                                    g_m = measure_idx + mi
+                                    all_grace.append({
+                                        'measure_raw': g_m,
+                                        'string': st,
+                                        'frets': frets,
+                                        'x0': x0,
+                                        'x1': x1,
+                                        'bar_x0': mx0,
+                                        'bar_x1': mx1,
+                                        'bar_stems': bar_stems.get(g_m, []),
+                                    })
+                                    break
+                    i += 1
+
             measure_idx += len(measures)
 
 all_notes.sort(key=lambda e: (e['beat'], e['string']))
@@ -263,6 +360,44 @@ for s in unique_stems:
 for b in all_beams:
     b['beat'] += 4
     b['beat_end'] += 4
+
+# ── Append grace notes (snap to nearest stem position by x) ───────────────────
+# If that beat already has a regular note on the same string, shift the grace
+# ornament a tiny bit later so it plays AFTER the main note (hammer-on/pull-off).
+for g in all_grace:
+    measure_global = g['measure_raw'] + 1  # pickup shift
+    stems_in_bar = g.get('bar_stems') or []
+    if stems_in_bar:
+        # Snap grace's leading x to the nearest stem's bim
+        gx = g['x0']
+        nearest = min(stems_in_bar, key=lambda sb: abs(sb[0] - gx))
+        start_bim = max(0.0, min(3.5, nearest[1]))
+    else:
+        rel = (g['x0'] - g['bar_x0']) / (g['bar_x1'] - g['bar_x0']) * 4.0
+        start_bim = max(0.0, min(3.0, round(rel)))
+    # Conflict check: is there a regular note at this beat on this string?
+    conflict = any(
+        n['measure'] == measure_global and n['string'] == g['string']
+        and not n.get('grace')
+        and abs(n['beat_in_measure'] - start_bim) < 0.05
+        for n in all_notes
+    )
+    if conflict:
+        start_bim = min(3.85, start_bim + 0.15)   # shift so ornament follows the main note
+    for k, fret in enumerate(g['frets']):
+        bim = start_bim + k * 0.15
+        if bim >= 4.0: bim = 3.99
+        all_notes.append({
+            'beat': round(measure_global * 4.0 + bim, 4),
+            'midi': OPEN_MIDI[g['string']] + fret,
+            'string': g['string'],
+            'fret': fret,
+            'measure': measure_global,
+            'beat_in_measure': round(bim, 4),
+            'grace': True,
+        })
+
+all_notes.sort(key=lambda e: (e['beat'], e['string']))
 
 total_measures = measure_idx + 1
 print(f"Total measures: {total_measures}")

@@ -2,7 +2,7 @@
   "name": "Jarabi — Derek Gripper",
   "short_name": "Jarabi",
   "description": "Interactive guitar tab player for Jarabi",
-  "start_url": "./jarabi.html",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#1a1a1a",
   "theme_color": "#e8a020",

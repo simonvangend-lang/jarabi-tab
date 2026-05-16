@@ -1,0 +1,10 @@
+.DS_Store
+.claude/
+xhosa-vocab/
+xhosa-vocab-desktop/
+jarabi_pages/
+jarabi_rows/
+jarabi.txt
+jarabi_strip.png
+__pycache__/
+*.pyc
