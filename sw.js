@@ -1,5 +1,5 @@
-const CACHE = 'jarabi-v59';
-const LOCAL = ['./', './index.html', './notes.json', './manifest.json', './icon.svg'];
+const CACHE = 'jarabi-v60';
+const LOCAL = ['./', './index.html', './scores/scores.json', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(LOCAL)));
@@ -23,7 +23,8 @@ self.addEventListener('fetch', e => {
 
   const isDynamic = url.pathname.endsWith('index.html')
                  || url.pathname.endsWith('jarabi.html')   // legacy URL still works for old clients
-                 || url.pathname.endsWith('notes.json')
+                 || url.pathname.endsWith('notes.json')    // legacy
+                 || /\/scores\/.+\.json$/.test(url.pathname)
                  || url.pathname === '/' || url.pathname.endsWith('/');
 
   if (isDynamic) {

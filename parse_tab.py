@@ -1,16 +1,33 @@
 #!/usr/bin/env python3
 """
-Parse Jarabi PDF tab using barlines + beam detection for accurate musical timing.
-Outputs notes.json with beat positions derived from note values:
-  - Beamed stems (eighth notes): 0.5-beat steps
-  - Unbeamed stems (quarter/half/whole): 1.0-beat steps
+Parse a Derek Gripper-style guitar tab PDF into scores/<id>.json.
+
+Usage:
+  python3 parse_tab.py <path-to-pdf> [score-id]
+
+If score-id is omitted, it's derived from the PDF filename
+(lowercase, hyphenated, no extension).
 
 Tuning (without capo): E B F# D A D (strings 0-5, high to low)
 CAPO III → open MIDI: G4(67) D4(62) A3(57) F3(53) C3(48) F2(41)
 """
-import pdfplumber, json
+import pdfplumber, json, sys, os, re
 
-PDF       = "/Volumes/T9/Dropbox/simonvangend/guitar/Derek Gripper TABs/Jarabi.pdf"
+if len(sys.argv) < 2:
+    print(__doc__)
+    sys.exit(1)
+PDF = sys.argv[1]
+if not os.path.exists(PDF):
+    print(f"PDF not found: {PDF}")
+    sys.exit(1)
+SCORE_ID = (sys.argv[2] if len(sys.argv) >= 3
+            else re.sub(r'[^a-z0-9_-]+', '-',
+                        os.path.splitext(os.path.basename(PDF))[0].lower()).strip('-'))
+ROOT = os.path.dirname(os.path.abspath(__file__))
+SCORES_DIR = os.path.join(ROOT, 'scores')
+os.makedirs(SCORES_DIR, exist_ok=True)
+OUT_PATH = os.path.join(SCORES_DIR, f'{SCORE_ID}.json')
+
 OPEN_MIDI = [67, 62, 57, 53, 48, 41]
 STAFF_H_MIN = 35.0   # min height for a barline
 
@@ -417,6 +434,8 @@ out = {
     'stems':          unique_stems,
     'beams':          all_beams,
 }
-with open('notes.json', 'w') as f:
-    json.dump(out, f)
-print(f"\nSaved notes.json")
+with open(OUT_PATH, 'w') as f:
+    json.dump(out, f, indent=2)
+print(f"\nSaved {OUT_PATH}")
+print(f"Remember to add this score to scores/scores.json so it appears in the picker:")
+print(f'  {{ "id": "{SCORE_ID}", "title": "...", "composer": "..." }}')

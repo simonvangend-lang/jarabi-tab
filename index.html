@@ -69,7 +69,10 @@
 <body>
 
 <div id="controls">
-  <h1>Jarabi — Derek Gripper</h1>
+  <h1 id="title">Jarabi</h1>
+  <select id="score-picker"
+          style="background:#222;color:#fff;border:1px solid #555;border-radius:4px;
+                 padding:4px 8px;font-size:14px;cursor:pointer"></select>
   <button id="btn-play" disabled>▶ Play</button>
   <button id="btn-reset">↺ Reset</button>
   <div class="cg">
@@ -500,26 +503,67 @@ function draw() {
 }
 
 // ── Data loading ─────────────────────────────────────────────────────────────
-fetch('notes.json')
-  .then(r => r.json())
-  .then(data => {
-    notes         = data.notes;
-    stems         = data.stems || [];
-    beams         = data.beams || [];
-    totalMeasures = data.total_measures;
-    totalBeats    = totalMeasures * BEATS_PER_MEASURE;
-    bpmSlider.value = data.bpm;
-    bpmVal.textContent = data.bpm;
+const scorePicker = document.getElementById('score-picker');
+const titleEl     = document.getElementById('title');
+let currentScoreId = null;
+let scoreCatalogue = [];
 
-    // Which stem beats have a note (×8 resolution = 0.125-beat grid)
-    noteStemSet = new Set(notes.filter(n => !n.grace).map(n => Math.round(n.beat * 8)));
+// Choose initial score: URL hash > localStorage > first in catalogue
+function pickInitialScoreId(catalogue) {
+  const hash = location.hash.replace(/^#/, '');
+  if (hash && catalogue.some(s => s.id === hash)) return hash;
+  const saved = localStorage.getItem('jarabi.score');
+  if (saved && catalogue.some(s => s.id === saved)) return saved;
+  return catalogue[0]?.id;
+}
 
+async function loadScore(id) {
+  if (!id) return;
+  // Reset transient state so switching mid-edit doesn't leave stale data
+  if (notePart) { notePart.dispose(); notePart = null; }
+  audioReady = false;
+  playing    = false;
+  scrollOffset = 0;
+  undoStack    = [];
+  selectedNote = null;
+  selectedStemNotes = null;
+  btnPlay.disabled = true;
+  btnPlay.textContent = '▶ Play';
 
-    statusEl.textContent = `${notes.length} notes · ${totalMeasures} bars`;
-    btnPlay.disabled = false;
-    resize();
-    draw();
-  });
+  const data = await fetch(`scores/${id}.json`).then(r => r.json());
+  notes         = data.notes;
+  stems         = data.stems || [];
+  beams         = data.beams || [];
+  totalMeasures = data.total_measures;
+  totalBeats    = totalMeasures * BEATS_PER_MEASURE;
+  bpmSlider.value     = data.bpm;
+  bpmVal.textContent  = data.bpm;
+  noteStemSet = new Set(notes.filter(n => !n.grace).map(n => Math.round(n.beat * 8)));
+
+  currentScoreId = id;
+  localStorage.setItem('jarabi.score', id);
+  history.replaceState(null, '', `#${id}`);
+  const meta = scoreCatalogue.find(s => s.id === id);
+  if (meta) {
+    titleEl.textContent = meta.title;
+    document.title = `${meta.title} — Jarabi`;
+  }
+  statusEl.textContent = `${notes.length} notes · ${totalMeasures} bars`;
+  btnPlay.disabled = false;
+  resize();
+  draw();
+}
+
+(async () => {
+  scoreCatalogue = (await fetch('scores/scores.json').then(r => r.json())).scores;
+  scorePicker.innerHTML = scoreCatalogue.map(s =>
+    `<option value="${s.id}">${s.title}${s.composer ? '  ·  ' + s.composer : ''}</option>`
+  ).join('');
+  scorePicker.addEventListener('change', () => loadScore(scorePicker.value));
+  const initialId = pickInitialScoreId(scoreCatalogue);
+  scorePicker.value = initialId;
+  await loadScore(initialId);
+})();
 
 // ── Rhythm helpers ────────────────────────────────────────────────────────────
 // 3+3+2 accent pattern within a 4/4 bar (eighth notes 1, 4, 7)
@@ -1468,9 +1512,10 @@ async function doSave() {
     beams,
   };
   const body = JSON.stringify(out);
+  const filename = `${currentScoreId || 'score'}.json`;
   try {
-    const r = await fetch('/save', { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body });
+    const r = await fetch(`/save?id=${encodeURIComponent(currentScoreId || '')}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
     if (!r.ok) throw new Error(r.status);
     isDirty = false;
     btnSave.textContent = '✔ Saved';
@@ -1480,7 +1525,7 @@ async function doSave() {
     const blob = new Blob([body], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'notes.json';
+    a.download = filename;
     a.click();
     isDirty = false;
   }
