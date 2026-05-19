@@ -29,11 +29,33 @@ os.makedirs(SCORES_DIR, exist_ok=True)
 OUT_PATH = os.path.join(SCORES_DIR, f'{SCORE_ID}.json')
 
 OPEN_MIDI = [67, 62, 57, 53, 48, 41]
-STAFF_H_MIN = 35.0   # min height for a barline
 
 def is_fret(t):
     try: n = int(t); return 0 <= n <= 22
     except: return False
+
+# ── Auto-detect the fret-number font size for this PDF ────────────────────────
+# Different PDFs use different point sizes (Jarabi=10.4, Tubaka=7.4). The fret
+# font is whichever size occurs most often among digit characters across the
+# whole document.
+from collections import Counter
+def detect_fret_size(pdf):
+    sizes = Counter()
+    for p in pdf.pages:
+        for c in p.chars:
+            if c['text'].isdigit() and c.get('non_stroking_color') != (1.0, 1.0, 1.0):
+                sizes[round(c['size'], 1)] += 1
+    if not sizes:
+        return 10.4
+    return sizes.most_common(1)[0][0]
+
+with pdfplumber.open(PDF) as pdf:
+    FRET_SIZE = detect_fret_size(pdf)
+print(f'Detected fret font size: {FRET_SIZE}pt')
+
+# Grace-cluster thresholds scale with font size (calibrated for 10.4pt)
+GRACE_GAP_MAX  = 8.0  * (FRET_SIZE / 10.4)   # tight-cluster horizontal gap
+GRACE_2DIG_W   = 13.5 * (FRET_SIZE / 10.4)   # 2-digit cluster width above which it's grace
 
 all_notes    = []
 all_stems    = []
@@ -49,7 +71,7 @@ def find_grace_skip_positions(page):
     part of tight grace clusters. Per-(x,y) so chord notes on other strings at the
     same x are not affected."""
     digits = [c for c in page.chars
-              if c['text'].isdigit() and round(c['size'], 1) == 10.4
+              if c['text'].isdigit() and round(c['size'], 1) == FRET_SIZE
               and c.get('non_stroking_color') != (1.0, 1.0, 1.0)]
     rows = {}
     for c in digits:
@@ -61,13 +83,13 @@ def find_grace_skip_positions(page):
         i = 0
         while i < len(arr):
             cl = [arr[i]]
-            while i + 1 < len(arr) and arr[i+1]['x0'] - arr[i]['x1'] < 8:
+            while i + 1 < len(arr) and arr[i+1]['x0'] - arr[i]['x1'] < GRACE_GAP_MAX:
                 cl.append(arr[i+1]); i += 1
             if len(cl) >= 2:
                 seq = ''.join(c['text'] for c in cl)
                 x0 = cl[0]['x0']; x1 = cl[-1]['x1']; width = x1 - x0
                 is_grace = (len(cl) >= 3
-                            or (len(cl) == 2 and (int(seq) > 22 or width > 13.5)))
+                            or (len(cl) == 2 and (int(seq) > 22 or width > GRACE_2DIG_W)))
                 if is_grace:
                     for c in cl:
                         skip.add((round(c['x0'], 1), round(c['top'])))
@@ -137,7 +159,7 @@ with pdfplumber.open(PDF) as pdf:
 
         # ── Find grace clusters per page (for attaching as grace notes later) ──
         page_digits = [c for c in page.chars
-                       if c['text'].isdigit() and round(c['size'], 1) == 10.4
+                       if c['text'].isdigit() and round(c['size'], 1) == FRET_SIZE
                        and c.get('non_stroking_color') != (1.0, 1.0, 1.0)]
 
         # Per-bar stem data, so the grace pass can snap to actual stem positions
@@ -147,12 +169,17 @@ with pdfplumber.open(PDF) as pdf:
         # ── Process each system ──────────────────────────────────────────────
         for sys_top, sys_bot, staff_x0, staff_x1 in systems_h:
 
+            # Min barline height is proportional to staff height (was hardcoded
+            # 35pt, which excluded shorter staves in other PDFs)
+            staff_height = sys_bot - sys_top
+            barline_min_h = staff_height * 0.7
+
             # Barlines
             barlines_x = sorted(set(
                 round(l['x0'], 1)
                 for l in vlines
                 if (abs(l['x0'] - l['x1']) < 2
-                    and l['height'] >= STAFF_H_MIN
+                    and l['height'] >= barline_min_h
                     and l['top'] >= sys_top - 5
                     and l['bottom'] >= sys_bot - 5   # must reach near staff bottom
                     and l['bottom'] <= sys_bot + 5)
@@ -225,7 +252,7 @@ with pdfplumber.open(PDF) as pdf:
                         and l['height'] >= 0.3
                         and l['bottom'] < sys_bot - 5   # doesn't span full staff
                         and mx0 - 1 <= l['x0'] <= note_x1 + 1
-                        and l['top'] >= sys_top - 50   # exclude vlines from staff above (was -120, too generous)
+                        and l['top'] >= sys_top - staff_height   # exclude vlines from staff above
                         and l['bottom'] <= sys_bot + 5)
                 ))
                 # Deduplicate within 3pt, exclude barlines / staff start
@@ -323,13 +350,13 @@ with pdfplumber.open(PDF) as pdf:
                 i = 0
                 while i < len(arr):
                     cl = [arr[i]]
-                    while i + 1 < len(arr) and arr[i+1]['x0'] - arr[i]['x1'] < 8:
+                    while i + 1 < len(arr) and arr[i+1]['x0'] - arr[i]['x1'] < GRACE_GAP_MAX:
                         cl.append(arr[i+1]); i += 1
                     if len(cl) >= 2:
                         seq = ''.join(c['text'] for c in cl)
                         x0 = cl[0]['x0']; x1 = cl[-1]['x1']; width = x1 - x0
                         is_grace = (len(cl) >= 3
-                                    or (len(cl) == 2 and (int(seq) > 22 or width > 13.5)))
+                                    or (len(cl) == 2 and (int(seq) > 22 or width > GRACE_2DIG_W)))
                         if is_grace:
                             frets = [int(c['text']) for c in cl]
                             mid_x = (x0 + x1) / 2
