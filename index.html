@@ -1001,24 +1001,40 @@ document.addEventListener('keydown', async e => {
 }, true);  // capture phase: run before Firefox's menu-accelerator default
 
 // Canvas drag to pan score (mouseup seeks transport)
-let dragStartX = null;
-let dragStartScroll = null;
+// Short stationary press+release = tap = play/pause toggle.
+const TAP_MAX_MOVE = 8;     // px
+const TAP_MAX_TIME = 300;   // ms
+let dragStartX     = null;
+let dragStartY     = null;
+let dragStartScroll= null;
+let dragStartTime  = 0;
+let dragMoved      = false;
 viewport.addEventListener('mousedown', e => {
   if (e.button !== 0 || editMode) return;
-  dragStartX = e.clientX;
+  dragStartX      = e.clientX;
+  dragStartY      = e.clientY;
   dragStartScroll = scrollOffset;
+  dragStartTime   = Date.now();
+  dragMoved       = false;
   viewport.style.cursor = 'grabbing';
 });
 window.addEventListener('mousemove', e => {
   if (dragStartX === null) return;
   const dx = dragStartX - e.clientX;
+  if (Math.abs(dx) > TAP_MAX_MOVE || Math.abs(dragStartY - e.clientY) > TAP_MAX_MOVE) dragMoved = true;
   scrollOffset = Math.min(maxScroll(), Math.max(0, dragStartScroll + dx / zoom));
   draw();
 });
 window.addEventListener('mouseup', e => {
   if (dragStartX === null) return;
+  const elapsed = Date.now() - dragStartTime;
   dragStartX = null;
   viewport.style.cursor = '';
+  // Tap: short and no movement → toggle play/pause
+  if (!dragMoved && elapsed < TAP_MAX_TIME) {
+    playing ? doPause() : doPlay();
+    return;
+  }
   snapToBar();
   seekToScrollOffset();
 });
@@ -1074,21 +1090,40 @@ viewport.addEventListener('wheel', e => {
   }
 }, { passive: false });
 
-// Touch drag — scroll score, snap to bar on release
-let touchStartX = null;
-let touchStartScroll = null;
+// Touch drag — scroll score, snap to bar on release. Short stationary touch = tap = play/pause.
+let touchStartX     = null;
+let touchStartY     = null;
+let touchStartScroll= null;
+let touchStartTime  = 0;
+let touchMoved      = false;
 viewport.addEventListener('touchstart', e => {
+  if (editMode) return;
   touchStartX      = e.touches[0].clientX;
+  touchStartY      = e.touches[0].clientY;
   touchStartScroll = scrollOffset;
+  touchStartTime   = Date.now();
+  touchMoved       = false;
   clearTimeout(snapTimer);
 }, { passive: true });
 viewport.addEventListener('touchmove', e => {
   if (touchStartX === null) return;
   const dx = touchStartX - e.touches[0].clientX;
+  const dy = touchStartY - e.touches[0].clientY;
+  if (Math.abs(dx) > TAP_MAX_MOVE || Math.abs(dy) > TAP_MAX_MOVE) touchMoved = true;
   scrollOffset = Math.min(maxScroll(), Math.max(0, touchStartScroll + dx / zoom));
   draw();
 }, { passive: true });
-viewport.addEventListener('touchend', () => { touchStartX = null; snapToBar(); });
+viewport.addEventListener('touchend', () => {
+  if (touchStartX === null) return;
+  const elapsed = Date.now() - touchStartTime;
+  touchStartX = null;
+  if (!touchMoved && elapsed < TAP_MAX_TIME) {
+    playing ? doPause() : doPlay();
+    return;
+  }
+  snapToBar();
+  seekToScrollOffset();
+});
 
 // ── Edit mode ────────────────────────────────────────────────────────────────
 const btnEdit    = document.getElementById('btn-edit');
