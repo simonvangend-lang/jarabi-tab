@@ -1009,6 +1009,9 @@ let dragStartY     = null;
 let dragStartScroll= null;
 let dragStartTime  = 0;
 let dragMoved      = false;
+// Set by touchend whenever it handles a tap, so the synthetic mouseup that
+// follows on Android doesn't double-toggle play/pause.
+let touchTapAt     = 0;
 viewport.addEventListener('mousedown', e => {
   if (e.button !== 0 || editMode) return;
   dragStartX      = e.clientX;
@@ -1030,6 +1033,8 @@ window.addEventListener('mouseup', e => {
   const elapsed = Date.now() - dragStartTime;
   dragStartX = null;
   viewport.style.cursor = '';
+  // Ignore synthetic mouseup that fires right after a real touch tap
+  if (Date.now() - touchTapAt < 500) return;
   // Tap: short and no movement → toggle play/pause
   if (!dragMoved && elapsed < TAP_MAX_TIME) {
     playing ? doPause() : doPlay();
@@ -1113,11 +1118,13 @@ viewport.addEventListener('touchmove', e => {
   scrollOffset = Math.min(maxScroll(), Math.max(0, touchStartScroll + dx / zoom));
   draw();
 }, { passive: true });
-viewport.addEventListener('touchend', () => {
+viewport.addEventListener('touchend', e => {
   if (touchStartX === null) return;
   const elapsed = Date.now() - touchStartTime;
   touchStartX = null;
   if (!touchMoved && elapsed < TAP_MAX_TIME) {
+    touchTapAt = Date.now();
+    e.preventDefault();   // suppress synthetic mouse/click that would re-toggle
     playing ? doPause() : doPlay();
     return;
   }
