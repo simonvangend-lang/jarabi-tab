@@ -1,4 +1,4 @@
-const CACHE = 'jarabi-v61';
+const CACHE = 'jarabi-v62';
 const LOCAL = ['./', './index.html', './scores/scores.json', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {

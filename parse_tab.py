@@ -200,16 +200,17 @@ with pdfplumber.open(PDF) as pdf:
             boundaries = [staff_x0] + barlines_x
             measures   = list(zip(boundaries[:-1], boundaries[1:]))
 
-            # Beam curves for this system (filled, elongated, above the staff)
-            sys_beams = [
-                c for c in curves
-                if (c.get('fill')
-                    and c['height'] < 6
-                    and c['width'] > 8
-                    and c['width'] > c['height'] * 3
-                    and c['top']    >= sys_top - 70
-                    and c['bottom'] <= sys_top + 5)
-            ]
+            # Beam shapes for this system. Some PDFs (Jarabi) use filled curves,
+            # others (Tubaka) use rectangles. Accept both. The shape must sit
+            # above the staff and be wider than it is tall.
+            def looks_like_beam(s):
+                return (s.get('fill', True) is not False
+                        and s['height'] < 6
+                        and s['width'] >= 5
+                        and s['width'] > s['height']
+                        and s['top']    >= sys_top - staff_height * 2
+                        and s['bottom'] <= sys_top + 5)
+            sys_beams = [s for s in curves + page.rects if looks_like_beam(s)]
 
             def is_beamed(x):
                 return any(b['x0'] - 5 <= x <= b['x1'] + 5 for b in sys_beams)
@@ -245,11 +246,14 @@ with pdfplumber.open(PDF) as pdf:
                 # A barline spans the full staff (bottom >= sys_bot - 5).
                 # Stems — including tall two-voice bass stems — stop short of the
                 # staff bottom, so we use that to distinguish them from barlines.
+                # Min height filters out flag-strokes (PDFs that use flagged
+                # eighths render the flag as a separate short vline near the stem).
+                STEM_MIN_H = max(3, staff_height * 0.18)
                 raw_xs = sorted(set(
                     round(l['x0'], 0)
                     for l in vlines
                     if (abs(l['x0'] - l['x1']) < 2
-                        and l['height'] >= 0.3
+                        and l['height'] >= STEM_MIN_H
                         and l['bottom'] < sys_bot - 5   # doesn't span full staff
                         and mx0 - 1 <= l['x0'] <= note_x1 + 1
                         and l['top'] >= sys_top - staff_height   # exclude vlines from staff above
