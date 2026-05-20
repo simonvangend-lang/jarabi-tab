@@ -12,14 +12,6 @@
   "notes": [
     {
       "beat": 4.0,
-      "midi": 74,
-      "string": 0,
-      "fret": 7,
-      "measure": 1,
-      "beat_in_measure": 0.0
-    },
-    {
-      "beat": 4.0,
       "midi": 72,
       "string": 0,
       "fret": 5,
@@ -31,14 +23,6 @@
       "midi": 70,
       "string": 0,
       "fret": 3,
-      "measure": 2,
-      "beat_in_measure": 0.0
-    },
-    {
-      "beat": 8.0,
-      "midi": 72,
-      "string": 0,
-      "fret": 5,
       "measure": 2,
       "beat_in_measure": 0.0
     },
@@ -59,14 +43,6 @@
       "beat_in_measure": 1.0
     },
     {
-      "beat": 9.0,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 2,
-      "beat_in_measure": 1.0
-    },
-    {
       "beat": 9.5,
       "midi": 69,
       "string": 0,
@@ -79,14 +55,6 @@
       "midi": 67,
       "string": 0,
       "fret": 0,
-      "measure": 2,
-      "beat_in_measure": 2.0
-    },
-    {
-      "beat": 10.0,
-      "midi": 69,
-      "string": 0,
-      "fret": 2,
       "measure": 2,
       "beat_in_measure": 2.0
     },
@@ -155,14 +123,6 @@
       "beat_in_measure": 2.0
     },
     {
-      "beat": 14.0,
-      "midi": 69,
-      "string": 0,
-      "fret": 2,
-      "measure": 3,
-      "beat_in_measure": 2.0
-    },
-    {
       "beat": 14.5,
       "midi": 67,
       "string": 0,
@@ -185,14 +145,6 @@
       "fret": 2,
       "measure": 3,
       "beat_in_measure": 3.5
-    },
-    {
-      "beat": 16.0,
-      "midi": 62,
-      "string": 2,
-      "fret": 5,
-      "measure": 4,
-      "beat_in_measure": 0.0
     },
     {
       "beat": 17.0,
@@ -694,14 +646,6 @@
       "beat_in_measure": 0.5
     },
     {
-      "beat": 44.5,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 11,
-      "beat_in_measure": 0.5
-    },
-    {
       "beat": 45.0,
       "midi": 69,
       "string": 0,
@@ -1017,14 +961,6 @@
       "measure": 15,
       "beat_in_measure": 1.6,
       "grace": true
-    },
-    {
-      "beat": 63.5,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 15,
-      "beat_in_measure": 3.5
     },
     {
       "beat": 63.75,
@@ -1566,14 +1502,6 @@
       "measure": 23,
       "beat_in_measure": 1.6,
       "grace": true
-    },
-    {
-      "beat": 95.5,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 23,
-      "beat_in_measure": 3.5
     },
     {
       "beat": 95.75,
@@ -4405,14 +4333,6 @@
       "grace": true
     },
     {
-      "beat": 263.5,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 65,
-      "beat_in_measure": 3.5
-    },
-    {
       "beat": 263.75,
       "midi": 58,
       "string": 2,
@@ -4643,14 +4563,6 @@
       "fret": 0,
       "measure": 70,
       "beat_in_measure": 0.0
-    },
-    {
-      "beat": 280.5,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 70,
-      "beat_in_measure": 0.5
     },
     {
       "beat": 280.5,
@@ -4970,14 +4882,6 @@
       "grace": true
     },
     {
-      "beat": 299.5,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 74,
-      "beat_in_measure": 3.5
-    },
-    {
       "beat": 299.75,
       "midi": 58,
       "string": 2,
@@ -5258,14 +5162,6 @@
       "beat_in_measure": 0.5
     },
     {
-      "beat": 312.5,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 78,
-      "beat_in_measure": 0.5
-    },
-    {
       "beat": 313.0,
       "midi": 69,
       "string": 0,
@@ -5286,14 +5182,6 @@
       "midi": 67,
       "string": 0,
       "fret": 0,
-      "measure": 78,
-      "beat_in_measure": 1.5
-    },
-    {
-      "beat": 313.5,
-      "midi": 67,
-      "string": 1,
-      "fret": 5,
       "measure": 78,
       "beat_in_measure": 1.5
     },
@@ -5895,14 +5783,6 @@
       "beat_in_measure": 0.5
     },
     {
-      "beat": 344.5,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 86,
-      "beat_in_measure": 0.5
-    },
-    {
       "beat": 345.0,
       "midi": 69,
       "string": 0,
@@ -6202,14 +6082,6 @@
       "measure": 90,
       "beat_in_measure": 1.6,
       "grace": true
-    },
-    {
-      "beat": 363.5,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 90,
-      "beat_in_measure": 3.5
     },
     {
       "beat": 363.75,
@@ -7299,14 +7171,6 @@
     },
     {
       "beat": 429.0,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 107,
-      "beat_in_measure": 1.0
-    },
-    {
-      "beat": 429.0,
       "midi": 57,
       "string": 2,
       "fret": 0,
@@ -7562,14 +7426,6 @@
       "beat_in_measure": 0.5
     },
     {
-      "beat": 444.5,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 111,
-      "beat_in_measure": 0.5
-    },
-    {
       "beat": 445.0,
       "midi": 69,
       "string": 0,
@@ -7590,14 +7446,6 @@
       "midi": 67,
       "string": 0,
       "fret": 0,
-      "measure": 111,
-      "beat_in_measure": 1.5
-    },
-    {
-      "beat": 445.5,
-      "midi": 67,
-      "string": 1,
-      "fret": 5,
       "measure": 111,
       "beat_in_measure": 1.5
     },
@@ -7778,14 +7626,6 @@
       "beat_in_measure": 0.5
     },
     {
-      "beat": 456.5,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 114,
-      "beat_in_measure": 0.5
-    },
-    {
       "beat": 457.0,
       "midi": 69,
       "string": 0,
@@ -7903,14 +7743,6 @@
       "measure": 115,
       "beat_in_measure": 2.1,
       "grace": true
-    },
-    {
-      "beat": 463.75,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 115,
-      "beat_in_measure": 3.75
     },
     {
       "beat": 463.75,
@@ -8486,14 +8318,6 @@
       "grace": true
     },
     {
-      "beat": 499.5,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 124,
-      "beat_in_measure": 3.5
-    },
-    {
       "beat": 499.75,
       "midi": 58,
       "string": 2,
@@ -8684,14 +8508,6 @@
       "fret": 0,
       "measure": 128,
       "beat_in_measure": 0.0
-    },
-    {
-      "beat": 512.5,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 128,
-      "beat_in_measure": 0.5
     },
     {
       "beat": 512.5,
@@ -9019,14 +8835,6 @@
       "grace": true
     },
     {
-      "beat": 531.5,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 132,
-      "beat_in_measure": 3.5
-    },
-    {
       "beat": 531.75,
       "midi": 58,
       "string": 2,
@@ -9305,14 +9113,6 @@
       "fret": 0,
       "measure": 136,
       "beat_in_measure": 0.0
-    },
-    {
-      "beat": 544.5,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 136,
-      "beat_in_measure": 0.5
     },
     {
       "beat": 544.5,
@@ -9630,14 +9430,6 @@
       "measure": 140,
       "beat_in_measure": 1.6,
       "grace": true
-    },
-    {
-      "beat": 563.5,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 140,
-      "beat_in_measure": 3.5
     },
     {
       "beat": 563.75,
@@ -11019,14 +10811,6 @@
     },
     {
       "beat": 624.0,
-      "midi": 67,
-      "string": 1,
-      "fret": 5,
-      "measure": 156,
-      "beat_in_measure": 0.0
-    },
-    {
-      "beat": 624.0,
       "midi": 65,
       "string": 1,
       "fret": 3,
@@ -11038,14 +10822,6 @@
       "midi": 64,
       "string": 1,
       "fret": 2,
-      "measure": 156,
-      "beat_in_measure": 0.5
-    },
-    {
-      "beat": 624.5,
-      "midi": 65,
-      "string": 1,
-      "fret": 3,
       "measure": 156,
       "beat_in_measure": 0.5
     },
@@ -11064,14 +10840,6 @@
       "fret": 0,
       "measure": 156,
       "beat_in_measure": 1.5
-    },
-    {
-      "beat": 626.0,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 156,
-      "beat_in_measure": 2.0
     },
     {
       "beat": 627.0,
@@ -12555,14 +12323,6 @@
       "grace": true
     },
     {
-      "beat": 723.0,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 180,
-      "beat_in_measure": 3.0
-    },
-    {
       "beat": 723.75,
       "midi": 58,
       "string": 2,
@@ -13640,14 +13400,6 @@
       "grace": true
     },
     {
-      "beat": 795.5,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 198,
-      "beat_in_measure": 3.5
-    },
-    {
       "beat": 795.75,
       "midi": 58,
       "string": 2,
@@ -14072,14 +13824,6 @@
       "beat_in_measure": 0.5
     },
     {
-      "beat": 820.5,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 205,
-      "beat_in_measure": 0.5
-    },
-    {
       "beat": 821.0,
       "midi": 69,
       "string": 0,
@@ -14211,14 +13955,6 @@
       "measure": 206,
       "beat_in_measure": 2.1,
       "grace": true
-    },
-    {
-      "beat": 827.75,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 206,
-      "beat_in_measure": 3.75
     },
     {
       "beat": 827.75,
@@ -15215,14 +14951,6 @@
       "beat_in_measure": 0.5
     },
     {
-      "beat": 885.0,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 221,
-      "beat_in_measure": 1.0
-    },
-    {
       "beat": 886.0,
       "midi": 69,
       "string": 0,
@@ -15294,14 +15022,6 @@
     },
     {
       "beat": 888.0,
-      "midi": 67,
-      "string": 1,
-      "fret": 5,
-      "measure": 222,
-      "beat_in_measure": 0.0
-    },
-    {
-      "beat": 888.0,
       "midi": 65,
       "string": 1,
       "fret": 3,
@@ -15342,14 +15062,6 @@
       "measure": 222,
       "beat_in_measure": 1.3,
       "grace": true
-    },
-    {
-      "beat": 890.5,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 222,
-      "beat_in_measure": 2.5
     },
     {
       "beat": 891.5,
@@ -17210,14 +16922,6 @@
       "grace": true
     },
     {
-      "beat": 1001.0,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 250,
-      "beat_in_measure": 1.0
-    },
-    {
       "beat": 1002.0,
       "midi": 69,
       "string": 0,
@@ -17242,14 +16946,6 @@
       "measure": 250,
       "beat_in_measure": 2.15,
       "grace": true
-    },
-    {
-      "beat": 1002.5,
-      "midi": 67,
-      "string": 1,
-      "fret": 5,
-      "measure": 250,
-      "beat_in_measure": 2.5
     },
     {
       "beat": 1003.0,
@@ -17506,25 +17202,9 @@
     },
     {
       "beat": 1016.0,
-      "midi": 67,
-      "string": 1,
-      "fret": 5,
-      "measure": 254,
-      "beat_in_measure": 0.0
-    },
-    {
-      "beat": 1016.0,
       "midi": 65,
       "string": 1,
       "fret": 3,
-      "measure": 254,
-      "beat_in_measure": 0.0
-    },
-    {
-      "beat": 1016.0,
-      "midi": 61,
-      "string": 2,
-      "fret": 4,
       "measure": 254,
       "beat_in_measure": 0.0
     },
@@ -17644,35 +17324,11 @@
     },
     {
       "beat": 1019.75,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 254,
-      "beat_in_measure": 3.75
-    },
-    {
-      "beat": 1019.75,
       "midi": 55,
       "string": 3,
       "fret": 2,
       "measure": 254,
       "beat_in_measure": 3.75
-    },
-    {
-      "beat": 1020.0,
-      "midi": 66,
-      "string": 1,
-      "fret": 4,
-      "measure": 255,
-      "beat_in_measure": 0.0
-    },
-    {
-      "beat": 1020.0,
-      "midi": 61,
-      "string": 2,
-      "fret": 4,
-      "measure": 255,
-      "beat_in_measure": 0.0
     },
     {
       "beat": 1020.0,
@@ -17822,35 +17478,11 @@
     },
     {
       "beat": 1027.5,
-      "midi": 74,
-      "string": 1,
-      "fret": 12,
-      "measure": 256,
-      "beat_in_measure": 3.5
-    },
-    {
-      "beat": 1027.5,
       "midi": 60,
       "string": 2,
       "fret": 3,
       "measure": 256,
       "beat_in_measure": 3.5
-    },
-    {
-      "beat": 1027.5,
-      "midi": 65,
-      "string": 2,
-      "fret": 8,
-      "measure": 256,
-      "beat_in_measure": 3.5
-    },
-    {
-      "beat": 1032.0,
-      "midi": 65,
-      "string": 2,
-      "fret": 8,
-      "measure": 258,
-      "beat_in_measure": 0.0
     },
     {
       "beat": 1032.0,
@@ -17929,14 +17561,6 @@
       "midi": 64,
       "string": 1,
       "fret": 2,
-      "measure": 258,
-      "beat_in_measure": 3.75
-    },
-    {
-      "beat": 1035.75,
-      "midi": 62,
-      "string": 2,
-      "fret": 5,
       "measure": 258,
       "beat_in_measure": 3.75
     },
@@ -18157,14 +17781,6 @@
       "beat_in_measure": 2.5
     },
     {
-      "beat": 1043.0,
-      "midi": 60,
-      "string": 2,
-      "fret": 3,
-      "measure": 260,
-      "beat_in_measure": 3.0
-    },
-    {
       "beat": 1043.75,
       "midi": 72,
       "string": 0,
@@ -18193,14 +17809,6 @@
       "midi": 60,
       "string": 2,
       "fret": 3,
-      "measure": 260,
-      "beat_in_measure": 3.75
-    },
-    {
-      "beat": 1043.75,
-      "midi": 55,
-      "string": 3,
-      "fret": 2,
       "measure": 260,
       "beat_in_measure": 3.75
     },
@@ -18430,14 +18038,6 @@
     },
     {
       "beat": 1051.75,
-      "midi": 62,
-      "string": 2,
-      "fret": 5,
-      "measure": 262,
-      "beat_in_measure": 3.75
-    },
-    {
-      "beat": 1051.75,
       "midi": 60,
       "string": 2,
       "fret": 3,
@@ -18614,14 +18214,6 @@
     },
     {
       "beat": 1056.0,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 264,
-      "beat_in_measure": 0.0
-    },
-    {
-      "beat": 1056.0,
       "midi": 69,
       "string": 0,
       "fret": 2,
@@ -18675,14 +18267,6 @@
       "fret": 0,
       "measure": 264,
       "beat_in_measure": 2.0
-    },
-    {
-      "beat": 1058.5,
-      "midi": 65,
-      "string": 1,
-      "fret": 3,
-      "measure": 264,
-      "beat_in_measure": 2.5
     },
     {
       "beat": 1058.5,
@@ -18934,14 +18518,6 @@
     },
     {
       "beat": 1066.5,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 266,
-      "beat_in_measure": 2.5
-    },
-    {
-      "beat": 1066.5,
       "midi": 48,
       "string": 4,
       "fret": 0,
@@ -19131,14 +18707,6 @@
       "fret": 0,
       "measure": 267,
       "beat_in_measure": 3.75
-    },
-    {
-      "beat": 1072.0,
-      "midi": 70,
-      "string": 0,
-      "fret": 3,
-      "measure": 268,
-      "beat_in_measure": 0.0
     },
     {
       "beat": 1072.0,

@@ -106,10 +106,13 @@ with pdfplumber.open(PDF) as pdf:
         ]
         words       = page.extract_words(x_tolerance=3, y_tolerance=3)
         grace_skip  = find_grace_skip_positions(page)
-        # (x, y) pairs of visible single-digit chars, minus grace-cluster ones
+        # (x, y) pairs of visible single-digit chars at the MAIN fret size,
+        # minus grace-cluster ones. Filtering by size keeps Tubaka-style PDFs
+        # (which use a smaller font for ornaments) from polluting the main pass.
         visible_keys = set(
             (round(float(ch['x0']), 1), round(float(ch['top'])))
-            for ch in visible_chars if is_fret(ch['text'])
+            for ch in visible_chars
+            if is_fret(ch['text']) and round(ch['size'], 1) == FRET_SIZE
         ) - grace_skip
         # Keep a simple x-only set for quick rejection (any char with this x exists somewhere)
         visible_xs = set(k[0] for k in visible_keys)
