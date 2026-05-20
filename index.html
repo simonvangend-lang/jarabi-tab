@@ -441,7 +441,8 @@ function draw() {
   for (const note of notes) {
     if (!note.hammer) continue;
     const prev = notes
-      .filter(n => n.string === note.string && n.measure === note.measure && n.beat < note.beat)
+      .filter(n => n.string === note.string && n.beat < note.beat
+                && note.beat - n.beat < 1)   // only connect if within 1 beat (avoid huge cross-bar arcs)
       .sort((a, b) => b.beat - a.beat)[0];
     if (!prev) continue;
     const vxA = beatToVX(prev.beat);

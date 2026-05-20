@@ -49,9 +49,26 @@ def detect_fret_size(pdf):
         return 10.4
     return sizes.most_common(1)[0][0]
 
+def detect_grace_size(pdf, fret_size):
+    """Some PDFs (Tubaka) use a second smaller font for hammer-on/pull-off
+    ornaments. Pick the most common digit size below fret_size that has at
+    least ~5 occurrences per page on average."""
+    sizes = Counter()
+    for p in pdf.pages:
+        for c in p.chars:
+            if (c['text'].isdigit()
+                and c.get('non_stroking_color') != (1.0, 1.0, 1.0)
+                and round(c['size'], 1) < fret_size - 0.5):
+                sizes[round(c['size'], 1)] += 1
+    if not sizes: return None
+    sz, n = sizes.most_common(1)[0]
+    return sz if n >= 5 * max(1, len(pdf.pages)) else None
+
 with pdfplumber.open(PDF) as pdf:
     FRET_SIZE = detect_fret_size(pdf)
-print(f'Detected fret font size: {FRET_SIZE}pt')
+    GRACE_SIZE = detect_grace_size(pdf, FRET_SIZE)
+print(f'Detected fret font size: {FRET_SIZE}pt'
+      + (f'  ·  grace font: {GRACE_SIZE}pt' if GRACE_SIZE else ''))
 
 # Grace-cluster thresholds scale with font size (calibrated for 10.4pt)
 GRACE_GAP_MAX  = 8.0  * (FRET_SIZE / 10.4)   # tight-cluster horizontal gap
@@ -320,7 +337,9 @@ with pdfplumber.open(PDF) as pdf:
                         'beat_in_measure': round(b, 4),
                     })
 
-                # Map each note to its beat via nearest stem
+                # Map each note to its beat via nearest stem. Track per-stem
+                # main notes so we can attach small grace ornaments below.
+                main_notes_in_bar = []   # (stem_x, str_idx, fret, beat_global)
                 for x, y, fret in sys_notes:
                     if not (mx0 - 1 <= x <= note_x1 + 1): continue
                     nearest = min(stem_xs, key=lambda sx: abs(sx - x))
@@ -341,6 +360,59 @@ with pdfplumber.open(PDF) as pdf:
                         'measure':        global_m,
                         'beat_in_measure': round(b, 4),
                     })
+                    main_notes_in_bar.append((nearest, str_idx, fret, global_beat, b))
+
+                # ── Small grace digits (Tubaka-style hammer-on/pull-off) ────
+                if GRACE_SIZE is not None:
+                    sm_digits = [c for c in page.chars
+                                 if c['text'].isdigit()
+                                 and round(c['size'], 1) == GRACE_SIZE
+                                 and c.get('non_stroking_color') != (1.0, 1.0, 1.0)
+                                 and mx0 - 1 <= c['x0'] <= note_x1 + 1
+                                 and sys_top - 5 <= c['top'] <= sys_bot + 5]
+                    for c in sm_digits:
+                        # Snap to staff line
+                        if not staff_ys: continue
+                        si = min(range(len(staff_ys)),
+                                 key=lambda i: abs(staff_ys[i] - c['top']))
+                        if abs(staff_ys[si] - c['top']) > 6: continue
+                        si = max(0, min(5, si))
+                        fret = int(c['text'])
+                        gx   = (c['x0'] + c['x1']) / 2
+                        # Find the next main note on the same string with greater x
+                        candidates = [n for n in main_notes_in_bar
+                                      if n[1] == si and n[0] > gx]
+                        if not candidates: continue
+                        target = min(candidates, key=lambda n: n[0] - gx)
+                        target_beat   = target[3]
+                        target_bim    = target[4]
+                        # Place grace 0.15 beats before the main. The owning
+                        # measure is recomputed from the actual beat. For a grace
+                        # before the very first note, the measure index goes to
+                        # -1 — that's fine; the +1 pickup shift below maps it
+                        # into the empty pickup measure 0.
+                        grace_beat    = target_beat - 0.15
+                        grace_measure = int(grace_beat // 4)
+                        grace_bim     = grace_beat - grace_measure * 4
+                        all_notes.append({
+                            'beat':           round(grace_beat, 4),
+                            'midi':           OPEN_MIDI[si] + fret,
+                            'string':         si,
+                            'fret':           fret,
+                            'measure':        grace_measure,
+                            'beat_in_measure': round(grace_bim, 4),
+                            'grace':          True,
+                        })
+                        # Also mark the target main note as hammer (so the slur
+                        # arc gets drawn from grace → main).
+                        for n in all_notes:
+                            if (n.get('measure') == global_m
+                                and n.get('string') == si
+                                and abs(n.get('beat_in_measure', -1) - target_bim) < 1e-3
+                                and n.get('fret') == target[2]
+                                and not n.get('grace')):
+                                n['hammer'] = True
+                                break
 
             # ── Grace-note clusters in this system ──────────────────────────
             # Group digits in this system by string row, find tight x-clusters
