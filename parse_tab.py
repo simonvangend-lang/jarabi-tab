@@ -251,6 +251,43 @@ with pdfplumber.open(PDF) as pdf:
                 if sys_top - 5 <= y <= sys_bot + 5
             ]
 
+            # ── Pre-pass: find triplet x-ranges in this system ───────────────
+            # A triplet = a "3" marker above the staff PLUS a tight 3-digit
+            # cluster of fret-size digits beneath it. Each marker→range used
+            # to mark contained stems as 1/3-beat instead of 0.5-beat.
+            triplet_marks_x = [
+                c['x0'] for c in page.chars
+                if c.get('text') == '3'
+                and sys_top - 25 <= c['top'] <= sys_top - 3
+                and round(c['size'], 1) != FRET_SIZE
+                and c.get('non_stroking_color') != (1.0, 1.0, 1.0)
+            ]
+            # Find 3-digit fret clusters and pair them with triplet markers.
+            sys_fret_digits = [c for c in page.chars
+                               if c['text'].isdigit()
+                               and round(c['size'], 1) == FRET_SIZE
+                               and c.get('non_stroking_color') != (1.0, 1.0, 1.0)
+                               and sys_top - 5 <= c['top'] <= sys_bot + 5]
+            triplet_ranges = []   # [(x0, x1, string, frets)]
+            by_row = {}
+            for c in sys_fret_digits:
+                if not staff_ys: continue
+                si = min(range(len(staff_ys)), key=lambda i: abs(staff_ys[i] - c['top']))
+                if abs(staff_ys[si] - c['top']) > 5: continue
+                by_row.setdefault(max(0, min(5, si)), []).append(c)
+            for si, arr in by_row.items():
+                arr.sort(key=lambda c: c['x0'])
+                i = 0
+                while i < len(arr):
+                    cl = [arr[i]]
+                    while i + 1 < len(arr) and arr[i+1]['x0'] - arr[i]['x1'] < GRACE_GAP_MAX:
+                        cl.append(arr[i+1]); i += 1
+                    if len(cl) == 3:
+                        cx0, cx1 = cl[0]['x0'], cl[-1]['x1']
+                        if any(cx0 - 5 <= tx <= cx1 + 5 for tx in triplet_marks_x):
+                            triplet_ranges.append((cx0, cx1, si, [int(c['text']) for c in cl]))
+                    i += 1
+
             # ── Per-measure beat calculation via stems + beams ───────────────
             for mi, (mx0, mx1) in enumerate(measures):
                 m_width = mx1 - mx0
@@ -317,20 +354,55 @@ with pdfplumber.open(PDF) as pdf:
                 if is_anacrusis:
                     piece_has_anacrusis = True
 
+                def stem_duration(x):
+                    # Triplet stems: 1/3 beat each so three of them sum to 1 beat
+                    for cx0, cx1, _, _ in triplet_ranges:
+                        if cx0 - 5 <= x <= cx1 + 5:
+                            return 1.0 / 3.0
+                    return 0.5 if is_beamed(x) else 1.0
+
                 stem_beat = {}
                 if is_anacrusis:
                     cur = 4.0
                     for x in reversed(stem_xs):
-                        cur -= 0.5 if is_beamed(x) else 1.0
+                        cur -= stem_duration(x)
                         stem_beat[x] = cur
                 else:
                     cur = 0.0
                     for x in stem_xs:
                         stem_beat[x] = cur
-                        cur += 0.5 if is_beamed(x) else 1.0
+                        cur += stem_duration(x)
 
                 # Record per-bar stems for grace-pass snapping
                 bar_stems[global_m] = [(x, stem_beat[x]) for x in stem_xs]
+
+                # ── Emit triplets in this measure ──────────────────────────
+                # Triplets whose x-range falls inside this measure get their
+                # three notes added at the matching stem beats (now spaced 1/3
+                # each thanks to stem_duration above).
+                for cx0, cx1, t_str, t_frets in triplet_ranges:
+                    if not (mx0 - 1 <= (cx0 + cx1) / 2 <= mx1 + 1): continue
+                    # Find the 3 stems sitting inside this triplet range
+                    inside = [x for x in stem_xs if cx0 - 5 <= x <= cx1 + 5]
+                    if len(inside) < 1: continue
+                    # Use the leading stem's bim as the start; if fewer than 3
+                    # stems were detected, synthesise 1/3-beat steps.
+                    start_bim = stem_beat[inside[0]]
+                    for k, fret in enumerate(t_frets):
+                        if k < len(inside):
+                            bim_tr = stem_beat[inside[k]]
+                        else:
+                            bim_tr = start_bim + k * (1.0/3.0)
+                        beat_tr = global_m * 4.0 + bim_tr
+                        all_notes.append({
+                            'beat':           round(beat_tr, 4),
+                            'midi':           OPEN_MIDI[t_str] + fret,
+                            'string':         t_str,
+                            'fret':           fret,
+                            'measure':        global_m,
+                            'beat_in_measure': round(bim_tr, 4),
+                            'duration':       't',
+                        })
 
                 # Record beam pairs (each beam rectangle → one {beat, beat_end} entry)
                 for beam in sys_beams:
@@ -502,49 +574,25 @@ with pdfplumber.open(PDF) as pdf:
                         x0 = cl[0]['x0']; x1 = cl[-1]['x1']; width = x1 - x0
                         is_grace = (len(cl) >= 3
                                     or (len(cl) == 2 and (int(seq) > 22 or width > GRACE_2DIG_W)))
-                        if is_grace:
-                            # Does a triplet marker "3" sit above this cluster?
-                            has_triplet_mark = any(
-                                x0 - 5 <= tx <= x1 + 5 for tx in triplet_marks_x)
+                        # Skip clusters that are triplets (handled in main pass)
+                        is_triplet = (len(cl) == 3 and any(
+                            x0 - 5 <= tx <= x1 + 5 for tx in triplet_marks_x))
+                        if is_grace and not is_triplet:
                             frets = [int(c['text']) for c in cl]
                             mid_x = (x0 + x1) / 2
                             for mi, (mx0, mx1) in enumerate(measures):
                                 if mx0 <= mid_x <= mx1:
                                     g_m = measure_idx + mi
-                                    if has_triplet_mark and len(cl) == 3:
-                                        # Emit as triplet: three notes with
-                                        # duration='t', 1/3-beat spacing.
-                                        # Snap start beat to nearest stem in bar.
-                                        lead_x = (cl[0]['x0'] + cl[0]['x1']) / 2
-                                        stems_in_b = bar_stems.get(g_m, [])
-                                        if stems_in_b:
-                                            near = min(stems_in_b, key=lambda sb: abs(sb[0] - lead_x))
-                                            start_bim = near[1]
-                                        else:
-                                            start_bim = (lead_x - mx0) / max(1, mx1 - mx0) * 4
-                                        for k, fret in enumerate(frets):
-                                            bim_tr  = start_bim + k * (1.0/3.0)
-                                            beat_tr = g_m * 4.0 + bim_tr
-                                            all_notes.append({
-                                                'beat':           round(beat_tr, 4),
-                                                'midi':           OPEN_MIDI[st] + fret,
-                                                'string':         st,
-                                                'fret':           fret,
-                                                'measure':        g_m,
-                                                'beat_in_measure': round(bim_tr, 4),
-                                                'duration':       't',
-                                            })
-                                    else:
-                                        all_grace.append({
-                                            'measure_raw': g_m,
-                                            'string': st,
-                                            'frets': frets,
-                                            'x0': x0,
-                                            'x1': x1,
-                                            'bar_x0': mx0,
-                                            'bar_x1': mx1,
-                                            'bar_stems': bar_stems.get(g_m, []),
-                                        })
+                                    all_grace.append({
+                                        'measure_raw': g_m,
+                                        'string': st,
+                                        'frets': frets,
+                                        'x0': x0,
+                                        'x1': x1,
+                                        'bar_x0': mx0,
+                                        'bar_x1': mx1,
+                                        'bar_stems': bar_stems.get(g_m, []),
+                                    })
                                     break
                     i += 1
 
