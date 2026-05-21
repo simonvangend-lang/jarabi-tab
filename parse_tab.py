@@ -381,7 +381,7 @@ with pdfplumber.open(PDF) as pdf:
                     })
                     main_notes_in_bar.append((nearest, str_idx, fret, global_beat, b))
 
-                # ── Small grace digits (Tubaka-style hammer-on/pull-off) ────
+                # ── Small grace digits (Tubaka-style hammer-on/pull-off + triplets) ────
                 if GRACE_SIZE is not None:
                     sm_digits = [c for c in page.chars
                                  if c['text'].isdigit()
@@ -389,8 +389,51 @@ with pdfplumber.open(PDF) as pdf:
                                  and c.get('non_stroking_color') != (1.0, 1.0, 1.0)
                                  and mx0 - 1 <= c['x0'] <= note_x1 + 1
                                  and sys_top - 5 <= c['top'] <= sys_bot + 5]
+                    # Group by string row + tight x-cluster. 3+ tight digits = triplet.
+                    rows = {}
                     for c in sm_digits:
-                        # Snap to staff line
+                        if not staff_ys: continue
+                        si = min(range(len(staff_ys)),
+                                 key=lambda i: abs(staff_ys[i] - c['top']))
+                        if abs(staff_ys[si] - c['top']) > 6: continue
+                        si = max(0, min(5, si))
+                        rows.setdefault(si, []).append(c)
+                    handled = set()  # id(c) of digits we've already processed
+                    for si, arr in rows.items():
+                        arr.sort(key=lambda c: c['x0'])
+                        i = 0
+                        while i < len(arr):
+                            cl = [arr[i]]
+                            while (i + 1 < len(arr)
+                                   and arr[i+1]['x0'] - arr[i]['x1'] < GRACE_GAP_MAX * 1.5):
+                                cl.append(arr[i+1]); i += 1
+                            if len(cl) >= 3:
+                                # Triplet — emit at 1/3-beat spacing starting at
+                                # the beat closest to the cluster's leading x.
+                                lead_x = (cl[0]['x0'] + cl[0]['x1']) / 2
+                                if stem_xs:
+                                    near = min(stem_xs, key=lambda sx: abs(sx - lead_x))
+                                    start_bim = stem_beat[near]
+                                else:
+                                    start_bim = 0.0
+                                for k, dc in enumerate(cl):
+                                    fret = int(dc['text'])
+                                    bim_tr  = start_bim + k * (1.0/3.0)
+                                    beat_tr = global_m * 4.0 + bim_tr
+                                    all_notes.append({
+                                        'beat':           round(beat_tr, 4),
+                                        'midi':           OPEN_MIDI[si] + fret,
+                                        'string':         si,
+                                        'fret':           fret,
+                                        'measure':        global_m,
+                                        'beat_in_measure': round(bim_tr, 4),
+                                        'duration':       't',
+                                    })
+                                    handled.add(id(dc))
+                            i += 1
+                    # Remaining small digits → hammer-on/pull-off graces (original logic)
+                    for c in sm_digits:
+                        if id(c) in handled: continue
                         if not staff_ys: continue
                         si = min(range(len(staff_ys)),
                                  key=lambda i: abs(staff_ys[i] - c['top']))
@@ -398,18 +441,12 @@ with pdfplumber.open(PDF) as pdf:
                         si = max(0, min(5, si))
                         fret = int(c['text'])
                         gx   = (c['x0'] + c['x1']) / 2
-                        # Find the next main note on the same string with greater x
                         candidates = [n for n in main_notes_in_bar
                                       if n[1] == si and n[0] > gx]
                         if not candidates: continue
                         target = min(candidates, key=lambda n: n[0] - gx)
                         target_beat   = target[3]
                         target_bim    = target[4]
-                        # Place grace 0.15 beats before the main. The owning
-                        # measure is recomputed from the actual beat. For a grace
-                        # before the very first note, the measure index goes to
-                        # -1 — that's fine; the +1 pickup shift below maps it
-                        # into the empty pickup measure 0.
                         grace_beat    = target_beat - 0.15
                         grace_measure = int(grace_beat // 4)
                         grace_bim     = grace_beat - grace_measure * 4
@@ -422,8 +459,6 @@ with pdfplumber.open(PDF) as pdf:
                             'beat_in_measure': round(grace_bim, 4),
                             'grace':          True,
                         })
-                        # Also mark the target main note as hammer (so the slur
-                        # arc gets drawn from grace → main).
                         for n in all_notes:
                             if (n.get('measure') == global_m
                                 and n.get('string') == si
@@ -432,6 +467,18 @@ with pdfplumber.open(PDF) as pdf:
                                 and not n.get('grace')):
                                 n['hammer'] = True
                                 break
+
+            # ── Triplet markers above this system (Tubaka uses a "3" char in a
+            # non-fret font, sitting above the staff). Detect them so 3-digit
+            # clusters that have one can be emitted as triplets rather than
+            # graces.
+            triplet_marks_x = [
+                c['x0'] for c in page.chars
+                if c.get('text') == '3'
+                and sys_top - 25 <= c['top'] <= sys_top - 3
+                and round(c['size'], 1) != FRET_SIZE
+                and c.get('non_stroking_color') != (1.0, 1.0, 1.0)
+            ]
 
             # ── Grace-note clusters in this system ──────────────────────────
             # Group digits in this system by string row, find tight x-clusters
@@ -456,21 +503,48 @@ with pdfplumber.open(PDF) as pdf:
                         is_grace = (len(cl) >= 3
                                     or (len(cl) == 2 and (int(seq) > 22 or width > GRACE_2DIG_W)))
                         if is_grace:
+                            # Does a triplet marker "3" sit above this cluster?
+                            has_triplet_mark = any(
+                                x0 - 5 <= tx <= x1 + 5 for tx in triplet_marks_x)
                             frets = [int(c['text']) for c in cl]
                             mid_x = (x0 + x1) / 2
                             for mi, (mx0, mx1) in enumerate(measures):
                                 if mx0 <= mid_x <= mx1:
                                     g_m = measure_idx + mi
-                                    all_grace.append({
-                                        'measure_raw': g_m,
-                                        'string': st,
-                                        'frets': frets,
-                                        'x0': x0,
-                                        'x1': x1,
-                                        'bar_x0': mx0,
-                                        'bar_x1': mx1,
-                                        'bar_stems': bar_stems.get(g_m, []),
-                                    })
+                                    if has_triplet_mark and len(cl) == 3:
+                                        # Emit as triplet: three notes with
+                                        # duration='t', 1/3-beat spacing.
+                                        # Snap start beat to nearest stem in bar.
+                                        lead_x = (cl[0]['x0'] + cl[0]['x1']) / 2
+                                        stems_in_b = bar_stems.get(g_m, [])
+                                        if stems_in_b:
+                                            near = min(stems_in_b, key=lambda sb: abs(sb[0] - lead_x))
+                                            start_bim = near[1]
+                                        else:
+                                            start_bim = (lead_x - mx0) / max(1, mx1 - mx0) * 4
+                                        for k, fret in enumerate(frets):
+                                            bim_tr  = start_bim + k * (1.0/3.0)
+                                            beat_tr = g_m * 4.0 + bim_tr
+                                            all_notes.append({
+                                                'beat':           round(beat_tr, 4),
+                                                'midi':           OPEN_MIDI[st] + fret,
+                                                'string':         st,
+                                                'fret':           fret,
+                                                'measure':        g_m,
+                                                'beat_in_measure': round(bim_tr, 4),
+                                                'duration':       't',
+                                            })
+                                    else:
+                                        all_grace.append({
+                                            'measure_raw': g_m,
+                                            'string': st,
+                                            'frets': frets,
+                                            'x0': x0,
+                                            'x1': x1,
+                                            'bar_x0': mx0,
+                                            'bar_x1': mx1,
+                                            'bar_stems': bar_stems.get(g_m, []),
+                                        })
                                     break
                     i += 1
 
