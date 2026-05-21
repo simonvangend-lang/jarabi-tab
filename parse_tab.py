@@ -79,6 +79,7 @@ all_stems    = []
 all_beams    = []
 all_grace    = []          # list of (measure_global_raw, string, frets, x0_first_digit, bar_x0, bar_x1)
 measure_idx  = 0
+piece_has_anacrusis = False  # set to True if bar 0 is a true pickup (skip the +1 shift)
 
 # Per-page set of (round(x0,1)) values for digit chars that belong to a
 # tight grace-note cluster. We need this BEFORE building visible_xs so that
@@ -313,6 +314,8 @@ with pdfplumber.open(PDF) as pdf:
                 is_anacrusis = (global_m == 0
                                 and total_normal_beats < 2.0
                                 and stems_in_right_half)
+                if is_anacrusis:
+                    piece_has_anacrusis = True
 
                 stem_beat = {}
                 if is_anacrusis:
@@ -484,27 +487,30 @@ for s in sorted(all_stems, key=lambda e: e['beat']):
         seen.add(key)
         unique_stems.append(s)
 
-# Add empty first measure (for pickup/preparation time)
-# Shift all beats and measures forward by 1 measure (4 beats)
+# Add empty first measure (for pickup/preparation time). Skipped when the
+# piece already has a real anacrusis — there's no need for an extra empty
+# bar in front.
+PICKUP_SHIFT = 0 if piece_has_anacrusis else 4
+PICKUP_BARS  = 0 if piece_has_anacrusis else 1
 for n in all_notes:
-    n['beat'] += 4
+    n['beat'] += PICKUP_SHIFT
     n['beat_in_measure'] = n['beat'] % 4
-    n['measure'] += 1
+    n['measure'] += PICKUP_BARS
 
 for s in unique_stems:
-    s['beat'] += 4
+    s['beat'] += PICKUP_SHIFT
     s['beat_in_measure'] = s['beat'] % 4
-    s['measure'] += 1
+    s['measure'] += PICKUP_BARS
 
 for b in all_beams:
-    b['beat'] += 4
-    b['beat_end'] += 4
+    b['beat'] += PICKUP_SHIFT
+    b['beat_end'] += PICKUP_SHIFT
 
 # ── Append grace notes (snap to nearest stem position by x) ───────────────────
 # If that beat already has a regular note on the same string, shift the grace
 # ornament a tiny bit later so it plays AFTER the main note (hammer-on/pull-off).
 for g in all_grace:
-    measure_global = g['measure_raw'] + 1  # pickup shift
+    measure_global = g['measure_raw'] + PICKUP_BARS  # pickup shift
     stems_in_bar = g.get('bar_stems') or []
     if stems_in_bar:
         # Snap grace's leading x to the nearest stem's bim
@@ -538,7 +544,7 @@ for g in all_grace:
 
 all_notes.sort(key=lambda e: (e['beat'], e['string']))
 
-total_measures = measure_idx + 1
+total_measures = measure_idx + PICKUP_BARS
 print(f"Total measures: {total_measures}")
 print(f"Total notes:    {len(all_notes)}")
 print(f"Total stems:    {len(unique_stems)}")
