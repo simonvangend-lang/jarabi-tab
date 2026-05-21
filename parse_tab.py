@@ -303,12 +303,28 @@ with pdfplumber.open(PDF) as pdf:
                         })
                     continue
 
-                # Build cumulative beat positions from stem durations
+                # Anacrusis detection: if the very first bar of the piece has
+                # only a partial measure's worth of stems AND those stems are
+                # positioned in the right half of the bar, treat it as a pickup
+                # and number stems counting BACKWARD from the next barline.
+                total_normal_beats = sum(0.5 if is_beamed(x) else 1.0 for x in stem_xs)
+                bar_width = mx1 - mx0
+                stems_in_right_half = all((x - mx0) / max(1, bar_width) > 0.4 for x in stem_xs)
+                is_anacrusis = (global_m == 0
+                                and total_normal_beats < 2.0
+                                and stems_in_right_half)
+
                 stem_beat = {}
-                cur = 0.0
-                for x in stem_xs:
-                    stem_beat[x] = cur
-                    cur += 0.5 if is_beamed(x) else 1.0
+                if is_anacrusis:
+                    cur = 4.0
+                    for x in reversed(stem_xs):
+                        cur -= 0.5 if is_beamed(x) else 1.0
+                        stem_beat[x] = cur
+                else:
+                    cur = 0.0
+                    for x in stem_xs:
+                        stem_beat[x] = cur
+                        cur += 0.5 if is_beamed(x) else 1.0
 
                 # Record per-bar stems for grace-pass snapping
                 bar_stems[global_m] = [(x, stem_beat[x]) for x in stem_xs]

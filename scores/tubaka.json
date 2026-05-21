@@ -11,21 +11,21 @@
   ],
   "notes": [
     {
-      "beat": 3.85,
+      "beat": 7.35,
       "midi": 74,
       "string": 0,
       "fret": 7,
-      "measure": 0,
-      "beat_in_measure": 3.85,
+      "measure": 1,
+      "beat_in_measure": 3.3499999999999996,
       "grace": true
     },
     {
-      "beat": 4.0,
+      "beat": 7.5,
       "midi": 72,
       "string": 0,
       "fret": 5,
       "measure": 1,
-      "beat_in_measure": 0.0,
+      "beat_in_measure": 3.5,
       "hammer": true
     },
     {
@@ -19459,9 +19459,9 @@
   ],
   "stems": [
     {
-      "beat": 4.0,
+      "beat": 7.5,
       "measure": 1,
-      "beat_in_measure": 0.0
+      "beat_in_measure": 3.5
     },
     {
       "beat": 8.0,
