@@ -917,9 +917,9 @@
     },
     {
       "beat": 53.0,
-      "midi": 75,
+      "midi": 55,
       "string": 3,
-      "fret": 22,
+      "fret": 2,
       "measure": 13,
       "beat_in_measure": 1.0
     },
@@ -1476,9 +1476,9 @@
     },
     {
       "beat": 85.0,
-      "midi": 75,
+      "midi": 55,
       "string": 3,
-      "fret": 22,
+      "fret": 2,
       "measure": 21,
       "beat_in_measure": 1.0
     },

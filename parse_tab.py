@@ -162,6 +162,22 @@ with pdfplumber.open(PDF) as pdf:
                 max(l['x1'] for l in cluster)
             ))
 
+        # Some PDFs draw the same digit twice at identical coordinates (a
+        # bolding artifact). extract_words then concatenates "2" + "2" into
+        # "22" which passes as fret 22. Build a set of (x, y) positions where
+        # the source PDF has duplicated identical digits, so we can detect
+        # and collapse those "22"s back to "2".
+        from collections import Counter
+        dup_positions = set()
+        char_counter = Counter()
+        for ch in visible_chars:
+            if ch['text'].isdigit() and round(ch['size'], 1) == FRET_SIZE:
+                key = (round(ch['x0'], 1), round(ch['top']), ch['text'])
+                char_counter[key] += 1
+        for key, n in char_counter.items():
+            if n > 1:
+                dup_positions.add((key[0], key[1]))
+
         # ── Visible fret words ───────────────────────────────────────────────
         fret_words = []
         for w in words:
@@ -174,9 +190,14 @@ with pdfplumber.open(PDF) as pdf:
             # word's first digit matches a grace-skip key (chord notes on other
             # strings at the same x stay visible).
             if (round(x0, 1), round(y)) not in visible_keys: continue
+            text = w['text']
+            # Collapse duplicate-character artefacts: "22" at a position with
+            # two identical "2" chars → "2".
+            if len(text) >= 2 and len(set(text)) == 1 and (round(x0, 1), round(y)) in dup_positions:
+                text = text[0]
             # Use horizontal centre for stem matching (x0 is left edge, biases left)
             x_mid = (x0 + float(w['x1'])) / 2
-            fret_words.append((x_mid, y, int(w['text'])))
+            fret_words.append((x_mid, y, int(text)))
 
         # ── Find grace clusters per page (for attaching as grace notes later) ──
         page_digits = [c for c in page.chars
