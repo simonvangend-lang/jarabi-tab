@@ -360,19 +360,27 @@ function draw() {
   }
 
   // ── Triplet "3" markers ───────────────────────────────────────────────────
-  const tripletKeys = new Set(
-    notes.filter(n => n.duration === 't').map(n => Math.round(n.beat * 8))
-  );
-  if (tripletKeys.size > 0) {
+  // Group consecutive triplet beats (within 0.4 of each other) and draw a
+  // single "3" centered above each group.
+  const tripletBeats = [...new Set(
+    notes.filter(n => n.duration === 't').map(n => n.beat)
+  )].sort((a, b) => a - b);
+  if (tripletBeats.length > 0) {
+    const groups = [];
+    let g = [tripletBeats[0]];
+    for (let k = 1; k < tripletBeats.length; k++) {
+      if (tripletBeats[k] - g[g.length - 1] < 0.4) g.push(tripletBeats[k]);
+      else { groups.push(g); g = [tripletBeats[k]]; }
+    }
+    groups.push(g);
     ctx.fillStyle = '#555';
-    ctx.font = `bold ${Math.max(7, 9 * zoom)}px sans-serif`;
+    ctx.font = `bold ${Math.max(8, 11 * zoom)}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    for (const stem of stems) {
-      if (!tripletKeys.has(Math.round(stem.beat * 8))) continue;
-      const vx = beatToVX(stem.beat);
-      if (vx < vx0 - 5 || vx > vx1 + 5) continue;
-      ctx.fillText('3', vxToSX(vx), top - stemH - 2 * zoom);
+    for (const group of groups) {
+      const vxMid = (beatToVX(group[0]) + beatToVX(group[group.length - 1])) / 2;
+      if (vxMid < vx0 - 5 || vxMid > vx1 + 5) continue;
+      ctx.fillText('3', vxToSX(vxMid), top - stemH - 2 * zoom);
     }
   }
 
