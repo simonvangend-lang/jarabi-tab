@@ -343,10 +343,24 @@ with pdfplumber.open(PDF) as pdf:
                 kept = [x for x in raw_xs
                         if abs(x - staff_x0) > 5
                         and not any(abs(x - bx) <= 5 for bx in barlines_x)]
+                # Pre-compute which strings have notes near each stem's x.
+                # Used by chord-merge to distinguish voice-paired chords (notes
+                # on different strings, same beat) from sequential eighth notes
+                # (notes on the same string).
+                def strings_at(stem_x):
+                    out = set()
+                    for x, y, _ in sys_notes:
+                        if abs(x - stem_x) <= 5 and staff_ys:
+                            si = min(range(len(staff_ys)),
+                                     key=lambda i: abs(staff_ys[i] - y))
+                            if abs(staff_ys[si] - y) <= 5:
+                                out.add(max(0, min(5, si)))
+                    return out
+
                 # Voice-paired chord merge: when two adjacent stems are within
-                # one eighth-note width AND one is markedly taller (spans two
-                # voices), they're a chord sharing one musical beat. Drop the
-                # shorter (treble-only) stem.
+                # one eighth-note width, at least one is markedly tall (spans
+                # multiple voices), AND their note-strings don't overlap (a
+                # true chord, not sequential), drop the shorter stem.
                 est_eighth = (mx1 - mx0) / 8.0
                 merge_thresh = est_eighth * 0.95
                 stem_xs = []
@@ -358,10 +372,12 @@ with pdfplumber.open(PDF) as pdf:
                             h_cur  = stem_by_x[x]['height']
                             tall_thresh = staff_height * 0.55
                             if h_prev > tall_thresh or h_cur > tall_thresh:
-                                # Keep the taller one's x (chord stem position)
-                                if h_cur > h_prev:
-                                    stem_xs[-1] = x
-                                continue
+                                strs_prev = strings_at(prev_x)
+                                strs_cur  = strings_at(x)
+                                if not (strs_prev & strs_cur):
+                                    if h_cur > h_prev:
+                                        stem_xs[-1] = x
+                                    continue
                     stem_xs.append(x)
 
                 if not stem_xs:
