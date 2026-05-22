@@ -306,7 +306,7 @@ with pdfplumber.open(PDF) as pdf:
                 # staff bottom, so we use that to distinguish them from barlines.
                 # Min height filters out flag-strokes (PDFs that use flagged
                 # eighths render the flag as a separate short vline near the stem).
-                STEM_MIN_H = max(3, staff_height * 0.18)
+                STEM_MIN_H = max(3, staff_height * 0.22)
                 # Keep stem objects so we can inspect their height + bottom-y
                 # to merge voice-paired chord stems below.
                 raw_stems_obj = sorted(
