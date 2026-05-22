@@ -307,23 +307,55 @@ with pdfplumber.open(PDF) as pdf:
                 # Min height filters out flag-strokes (PDFs that use flagged
                 # eighths render the flag as a separate short vline near the stem).
                 STEM_MIN_H = max(3, staff_height * 0.18)
-                raw_xs = sorted(set(
-                    round(l['x0'], 0)
-                    for l in vlines
-                    if (abs(l['x0'] - l['x1']) < 2
-                        and l['height'] >= STEM_MIN_H
-                        and l['bottom'] < sys_bot - 5   # doesn't span full staff
-                        and mx0 - 1 <= l['x0'] <= note_x1 + 1
-                        and l['top'] >= sys_top - staff_height   # exclude vlines from staff above
-                        and l['bottom'] <= sys_bot + 5)
-                ))
-                # Deduplicate within 3pt, exclude barlines / staff start
+                # Keep stem objects so we can inspect their height + bottom-y
+                # to merge voice-paired chord stems below.
+                raw_stems_obj = sorted(
+                    [l for l in vlines
+                     if (abs(l['x0'] - l['x1']) < 2
+                         and l['height'] >= STEM_MIN_H
+                         and l['bottom'] < sys_bot - 5
+                         and mx0 - 1 <= l['x0'] <= note_x1 + 1
+                         and l['top'] >= sys_top - staff_height
+                         and l['bottom'] <= sys_bot + 5)],
+                    key=lambda l: l['x0']
+                )
+                # Deduplicate within 3pt
+                raw_xs = []
+                seen = set()
+                for l in raw_stems_obj:
+                    xr = round(l['x0'], 0)
+                    if xr in seen: continue
+                    seen.add(xr); raw_xs.append(xr)
+                # Map x → stem object (the tallest one at that x) for chord-merge
+                stem_by_x = {}
+                for l in raw_stems_obj:
+                    xr = round(l['x0'], 0)
+                    if xr not in stem_by_x or l['height'] > stem_by_x[xr]['height']:
+                        stem_by_x[xr] = l
+                # Exclude barlines / staff start
+                kept = [x for x in raw_xs
+                        if abs(x - staff_x0) > 5
+                        and not any(abs(x - bx) <= 5 for bx in barlines_x)]
+                # Voice-paired chord merge: when two adjacent stems are within
+                # one eighth-note width AND one is markedly taller (spans two
+                # voices), they're a chord sharing one musical beat. Drop the
+                # shorter (treble-only) stem.
+                est_eighth = (mx1 - mx0) / 8.0
+                merge_thresh = est_eighth * 0.95
                 stem_xs = []
-                for x in raw_xs:
-                    if abs(x - staff_x0) <= 5: continue
-                    if any(abs(x - bx) <= 5 for bx in barlines_x): continue
-                    if not stem_xs or x - stem_xs[-1] > 3:
-                        stem_xs.append(x)
+                for x in kept:
+                    if stem_xs:
+                        prev_x = stem_xs[-1]
+                        if x - prev_x < merge_thresh:
+                            h_prev = stem_by_x[prev_x]['height']
+                            h_cur  = stem_by_x[x]['height']
+                            tall_thresh = staff_height * 0.55
+                            if h_prev > tall_thresh or h_cur > tall_thresh:
+                                # Keep the taller one's x (chord stem position)
+                                if h_cur > h_prev:
+                                    stem_xs[-1] = x
+                                continue
+                    stem_xs.append(x)
 
                 if not stem_xs:
                     # Fallback: place any notes at beat 0
