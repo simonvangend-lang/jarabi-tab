@@ -225,11 +225,13 @@ with pdfplumber.open(PDF) as pdf:
             # others (Tubaka) use rectangles. Accept both. The shape must sit
             # above the staff and be wider than it is tall.
             def looks_like_beam(s):
+                # Beam sits within ~staff_height above sys_top. Earlier we used
+                # 2x staff_height which leaked beams from the system above.
                 return (s.get('fill', True) is not False
                         and s['height'] < 6
                         and s['width'] >= 5
                         and s['width'] > s['height']
-                        and s['top']    >= sys_top - staff_height * 2
+                        and s['top']    >= sys_top - staff_height * 0.8
                         and s['bottom'] <= sys_top + 5)
             sys_beams = [s for s in curves + page.rects if looks_like_beam(s)]
 
@@ -307,13 +309,18 @@ with pdfplumber.open(PDF) as pdf:
                 # Min height filters out flag-strokes (PDFs that use flagged
                 # eighths render the flag as a separate short vline near the stem).
                 STEM_MIN_H = max(3, staff_height * 0.22)
-                # Keep stem objects so we can inspect their height + bottom-y
-                # to merge voice-paired chord stems below.
+                # Barlines span the FULL staff height (both ends within ~5pt of
+                # sys_top/sys_bot). Anything shorter is a stem — including
+                # voice-2 stems whose bottoms reach into the staff-bottom area.
+                def is_barline(l):
+                    return (l['top'] >= sys_top - 5 and l['top'] <= sys_top + 5
+                            and l['bottom'] >= sys_bot - 5 and l['bottom'] <= sys_bot + 5
+                            and l['height'] >= staff_height * 0.7)
                 raw_stems_obj = sorted(
                     [l for l in vlines
                      if (abs(l['x0'] - l['x1']) < 2
                          and l['height'] >= STEM_MIN_H
-                         and l['bottom'] < sys_bot - 5
+                         and not is_barline(l)
                          and mx0 - 1 <= l['x0'] <= note_x1 + 1
                          and l['top'] >= sys_top - staff_height
                          and l['bottom'] <= sys_bot + 5)],
