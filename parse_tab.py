@@ -283,13 +283,15 @@ with pdfplumber.open(PDF) as pdf:
             # others (Tubaka) use rectangles. Accept both. The shape must sit
             # above the staff and be wider than it is tall.
             def looks_like_beam(s):
-                # Beams are thin horizontal filled shapes. They can sit
-                # anywhere from ~0.8 staff-heights above the staff (typical
-                # stems-up beam) down to ~0.5 below it (typical stems-down
-                # beam) — or anywhere within the staff body (partial beams
-                # on short stems can land mid-staff, e.g. Tubaka m42, m48).
+                # Beams are filled rectangles 2-5pt thick (height) and at
+                # least 5pt wide. They can sit anywhere from ~0.8 staff-
+                # heights above the staff down to ~0.5 below it — or
+                # within the staff body (partial beams on short stems can
+                # land mid-staff, e.g. Tubaka m42, m48). Require min
+                # height 1.5pt so slur curves (which can be hairline-thin
+                # h=0..1pt) don't get counted as extra beam layers.
                 return (s.get('fill', True) is not False
-                        and s['height'] < 6
+                        and 1.5 <= s['height'] < 6
                         and s['width'] >= 5
                         and s['width'] > s['height']
                         and s['top']    >= sys_top - staff_height * 0.8
@@ -419,11 +421,7 @@ with pdfplumber.open(PDF) as pdf:
                          and not is_barline(l)
                          and mx0 - 1 <= l['x0'] <= note_x1 + 1
                          and l['top'] >= sys_top - staff_height
-                         and l['bottom'] <= sys_bot + 5
-                         # Stem must reach INTO the staff — a vline that
-                         # sits entirely above the staff (e.g. a leftover
-                         # beam-end fragment) is not a stem.
-                         and l['bottom'] >= sys_top + 2)],
+                         and l['bottom'] <= sys_bot + 5)],
                     key=lambda l: l['x0']
                 )
                 # Deduplicate within ~1pt while keeping float precision for beat calc
@@ -593,11 +591,10 @@ with pdfplumber.open(PDF) as pdf:
                     if top_groups and t - top_groups[-1] < 3: continue
                     top_groups.append(t)
                 cum_total = sum(stem_duration(x) for x in stem_xs)
-                # Multi-voice uniform-x fallback only fires in 4/4-like
-                # time (eighth = 0.5 beat). In compound time (12/8) the
-                # sixteenth-grid snap would be wrong (it should snap to
-                # 1/6, not 0.25), and the compound-time overflow retry
-                # below handles the case properly via cumulative count.
+                # Multi-voice uniform-x fallback only fires in 4/4-style
+                # time. In compound time (12/8) the sixteenth grid (0.25)
+                # is wrong; the compound-time overflow retry below handles
+                # those bars correctly via cumulative count.
                 is_multi_voice = (len(top_groups) >= 3
                                   and len(stem_xs) > 8
                                   and cum_total > 4.5
