@@ -268,14 +268,22 @@ with pdfplumber.open(PDF) as pdf:
             # others (Tubaka) use rectangles. Accept both. The shape must sit
             # above the staff and be wider than it is tall.
             def looks_like_beam(s):
-                # Beam sits within ~staff_height above sys_top. Earlier we used
-                # 2x staff_height which leaked beams from the system above.
+                # Beams sit above the staff (stems-up) — but partial beams
+                # linking short upper-voice stems may extend slightly into
+                # the upper portion of the staff body. Allow bottom up to
+                # 30% of staff height below sys_top (Tubaka m42 has a
+                # partial beam at bot ≈ sys_top+5.7).
+                is_top = (s['top']    >= sys_top - staff_height * 0.8
+                          and s['bottom'] <= sys_top + staff_height * 0.3)
+                # Below-staff beams (stems-down): top near sys_bot,
+                # bottom can extend below the staff.
+                is_bot = (s['top']    >= sys_bot - staff_height * 0.3
+                          and s['bottom'] <= sys_bot + staff_height * 0.5)
                 return (s.get('fill', True) is not False
                         and s['height'] < 6
                         and s['width'] >= 5
                         and s['width'] > s['height']
-                        and s['top']    >= sys_top - staff_height * 0.8
-                        and s['bottom'] <= sys_top + 5)
+                        and (is_top or is_bot))
             sys_beams = [s for s in curves + page.rects if looks_like_beam(s)]
 
             def is_beamed(x):
