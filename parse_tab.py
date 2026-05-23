@@ -81,6 +81,21 @@ all_grace    = []          # list of (measure_global_raw, string, frets, x0_firs
 measure_idx  = 0
 piece_has_anacrusis = False  # set to True if bar 0 is a true pickup (skip the +1 shift)
 
+# Time signature state. The piece is assumed to start in 4/4, where one
+# eighth = 0.5 beat. A time-signature change is signalled by music-font
+# glyphs (OpusSpecialStd) inside a narrow "sliver" measure preceded by a
+# double barline. Tubaka switches to 12/8 near the end (display m250),
+# where one eighth = 1/3 beat, so the 12 eighths of a 12/8 bar still
+# total 4 beats in our normalized per-bar model.
+TIME_SIG_RATIOS = {
+    (4, 4): 1.0,        # eighth = 0.5 beat (default)
+    (12, 8): 2.0 / 3.0, # eighth = 1/3 beat (12 × 1/3 = 4)
+    (6, 8):  2.0 / 3.0, # same eighth ratio
+    (3, 4):  1.0,
+    (2, 4):  1.0,
+}
+beats_per_eighth = 0.5   # current state — updated as time sigs change
+
 # Per-page set of (round(x0,1)) values for digit chars that belong to a
 # tight grace-note cluster. We need this BEFORE building visible_xs so that
 # those characters are excluded from the regular-note parsing.
@@ -337,7 +352,42 @@ with pdfplumber.open(PDF) as pdf:
                     i += 1
 
             # ── Per-measure beat calculation via stems + beams ───────────────
+            # Detect a time-signature change BEFORE processing measures of
+            # this system. The change appears as music-font glyphs near a
+            # measure boundary (OpusSpecialStd '™' is used in Tubaka).
+            # We treat a narrow measure (< 40pt wide) that contains
+            # OpusSpecialStd glyphs as a "sliver" carrying the new time
+            # sig — update state, then skip the sliver itself.
+            sliver_indices = set()
+            for sm_i, (smx0, smx1) in enumerate(measures):
+                if smx1 - smx0 >= 40: continue
+                ts_chars = [c for c in page.chars
+                            if 'OpusSpecialStd' in (c.get('fontname') or '')
+                            and smx0 - 5 <= c['x0'] <= smx1 + 15
+                            and sys_top - 5 <= c['top'] <= sys_bot + 5]
+                if not ts_chars: continue
+                # Decode: which time sig? '12/8' has 3 OpusSpecialStd glyphs
+                # in vertical stack (top row = '12', bottom row = '8').
+                # For now we recognise 12/8 by character count; other sigs
+                # fall back to 4/4 default.
+                tops = sorted(c['top'] for c in ts_chars)
+                # Upper-row count tells us if the upper number is 1 or 2 digits.
+                upper_y = tops[0]
+                upper_count = sum(1 for c in ts_chars if abs(c['top']-upper_y) <= 4)
+                # Also count any plain OpusStd digits in the upper row (the '1' of "12")
+                upper_count += sum(1 for c in page.chars
+                                    if 'OpusStd' in (c.get('fontname') or '')
+                                    and c.get('text','').isdigit()
+                                    and abs(c['top']-upper_y) <= 4
+                                    and smx0 - 5 <= c['x0'] <= smx1 + 15)
+                if upper_count >= 2:
+                    beats_per_eighth = 1.0 / 3.0   # 12/8 (12 eighths in 4 beats)
+                    print(f'time signature change → 12/8 at sliver before global_m={measure_idx + sm_i}')
+                sliver_indices.add(sm_i)
+
             for mi, (mx0, mx1) in enumerate(measures):
+                if mi in sliver_indices:
+                    continue
                 m_width = mx1 - mx0
                 if m_width < 1:
                     continue
@@ -491,12 +541,15 @@ with pdfplumber.open(PDF) as pdf:
                     for cx0, cx1, _, _ in triplet_ranges:
                         if cx0 - 5 <= x <= cx1 + 5:
                             return 1.0 / 3.0
+                    # Scale all default durations by the current time sig.
+                    # In 4/4: eighth = 0.5 beat. In 12/8: eighth = 1/3 beat.
+                    e = beats_per_eighth
                     bs = beam_stack(x)
-                    if bs >= 3: return 0.125     # 32nd
-                    if bs == 2: return 0.25      # 16th
-                    if bs == 1: return 0.5       # 8th
-                    if has_flag(x): return 0.5   # 8th with flag (unbeamed single)
-                    return 1.0                    # quarter
+                    if bs >= 3: return e / 4.0   # 32nd
+                    if bs == 2: return e / 2.0   # 16th
+                    if bs == 1: return e         # 8th
+                    if has_flag(x): return e     # 8th with flag (unbeamed single)
+                    return e * 2.0                # quarter
 
                 # Detect multi-voice bars by counting distinct beam-top groups.
                 # 3+ separate top-y levels = multiple voices laid out across the
@@ -515,6 +568,24 @@ with pdfplumber.open(PDF) as pdf:
                 is_multi_voice = (len(top_groups) >= 3
                                   and len(stem_xs) > 8
                                   and cum_total > 4.5)
+
+                # In 12/8 (compound) sections the engraver sometimes omits
+                # the flag glyph on eighth notes because the eighth is the
+                # predominant subdivision. Treating these as quarters
+                # massively overflows the bar. If we're in a compound time
+                # signature AND default-duration cumulative count overflows,
+                # retry with unbeamed/unflagged stems treated as eighths.
+                if beats_per_eighth < 0.5 and cum_total > 4.5:
+                    def stem_duration(x, _orig=stem_duration):
+                        for cx0, cx1, _, _ in triplet_ranges:
+                            if cx0 - 5 <= x <= cx1 + 5:
+                                return 1.0 / 3.0
+                        e = beats_per_eighth
+                        bs = beam_stack(x)
+                        if bs >= 3: return e / 4.0
+                        if bs == 2: return e / 2.0
+                        return e   # eighth (default in compound time)
+                    cum_total = sum(stem_duration(x) for x in stem_xs)
 
                 stem_beat = {}
                 if is_multi_voice:
