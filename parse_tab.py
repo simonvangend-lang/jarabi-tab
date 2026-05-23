@@ -236,15 +236,17 @@ with pdfplumber.open(PDF) as pdf:
             staff_height = sys_bot - sys_top
             barline_min_h = staff_height * 0.7
 
-            # Barlines
+            # Barlines. Real barlines sit precisely on the staff; tolerate
+            # only ~3pt slop at top and bottom. ±5pt admits unusually tall
+            # voice-spanning stems whose endpoints land just above the staff
+            # (e.g. Tubaka m26: a stem at top=sys_top-3.7 split the bar).
             barlines_x = sorted(set(
                 round(l['x0'], 1)
                 for l in vlines
                 if (abs(l['x0'] - l['x1']) < 2
                     and l['height'] >= barline_min_h
-                    and l['top'] >= sys_top - 5
-                    and l['bottom'] >= sys_bot - 5   # must reach near staff bottom
-                    and l['bottom'] <= sys_bot + 5)
+                    and abs(l['top']    - sys_top) <= 3
+                    and abs(l['bottom'] - sys_bot) <= 3)
             ))
             if not barlines_x:
                 continue
@@ -354,8 +356,8 @@ with pdfplumber.open(PDF) as pdf:
                 # sys_top/sys_bot). Anything shorter is a stem — including
                 # voice-2 stems whose bottoms reach into the staff-bottom area.
                 def is_barline(l):
-                    return (l['top'] >= sys_top - 5 and l['top'] <= sys_top + 5
-                            and l['bottom'] >= sys_bot - 5 and l['bottom'] <= sys_bot + 5
+                    return (abs(l['top']    - sys_top) <= 3
+                            and abs(l['bottom'] - sys_bot) <= 3
                             and l['height'] >= staff_height * 0.7)
                 raw_stems_obj = sorted(
                     [l for l in vlines
