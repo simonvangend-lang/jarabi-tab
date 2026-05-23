@@ -503,22 +503,32 @@ with pdfplumber.open(PDF) as pdf:
                     stem_xs.append(x)
 
                 # ── Standard-triplet detection ────────────────────────────────
-                # A "3" marker above the staff (OpusTextStd-style or any non-fret
-                # font) plus 3 stems at roughly even spacing below it = a
-                # standard musical triplet. Mark the stems' x-range so
-                # stem_duration() returns 1/3 beat each. No notes are emitted
-                # here — the main pass already places the digits; we only need
-                # to fix the rhythm.
+                # A "3" marker above the staff plus 3 evenly-spaced stems
+                # = a standard musical triplet. Mark the stems' x-range so
+                # stem_duration() returns 1/3 beat each. No notes emitted
+                # — main pass already places the digits; we only fix the
+                # rhythm. The marker is centred over the 3 notes; for
+                # each marker, pick the consecutive triple of stems whose
+                # midpoint is closest to the marker.
+                sorted_stem_xs = sorted(stem_xs)
                 for tx in triplet_marks_x:
                     if not (mx0 - 5 <= tx <= mx1 + 5): continue
-                    # Already covered by a tight-cluster triplet at this x?
                     if any(cx0 - 8 <= tx <= cx1 + 8 for cx0, cx1, _, _ in triplet_ranges):
                         continue
-                    nearby = sorted(sx for sx in stem_xs if tx - 5 <= sx <= tx + 35)
-                    if len(nearby) >= 3:
-                        gaps = [nearby[i+1] - nearby[i] for i in range(2)]
-                        if min(gaps) > 0 and max(gaps) / min(gaps) < 1.6:
-                            triplet_ranges.append((nearby[0], nearby[2], -1, []))
+                    best = None
+                    best_dist = 30.0   # marker must be within 30pt of the triplet centre
+                    for i in range(len(sorted_stem_xs) - 2):
+                        s1, s2, s3 = sorted_stem_xs[i:i+3]
+                        gaps = (s2 - s1, s3 - s2)
+                        if gaps[0] <= 0 or gaps[1] <= 0: continue
+                        if max(gaps) / min(gaps) >= 1.6: continue
+                        midpoint = (s1 + s3) / 2.0
+                        dist = abs(midpoint - tx)
+                        if dist < best_dist:
+                            best_dist = dist
+                            best = (s1, s3)
+                    if best:
+                        triplet_ranges.append((best[0], best[1], -1, []))
 
                 if not stem_xs:
                     # Fallback: place any notes at beat 0
