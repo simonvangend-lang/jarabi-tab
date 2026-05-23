@@ -457,8 +457,26 @@ with pdfplumber.open(PDF) as pdf:
                             return 1.0 / 3.0
                     return 0.5 if is_beamed(x) else 1.0
 
+                # Detect multi-voice bars by counting distinct beam-top groups.
+                # 3+ separate top-y levels = multiple voices laid out across the
+                # bar — cumulative beat counting overcounts. Fall back to a
+                # uniform x→beat mapping for these bars.
+                tops = sorted(stem_by_x[x]['top'] for x in stem_xs)
+                top_groups = []
+                for t in tops:
+                    if top_groups and t - top_groups[-1] < 3: continue
+                    top_groups.append(t)
+                is_multi_voice = len(top_groups) >= 3 and len(stem_xs) > 8
+
                 stem_beat = {}
-                if is_anacrusis:
+                if is_multi_voice:
+                    # Uniform-x → beat, snapped to nearest eighth
+                    bar_w = max(1, mx1 - mx0)
+                    for x in stem_xs:
+                        raw = (x - mx0) / bar_w * 4.0
+                        bim = round(raw * 2) / 2
+                        stem_beat[x] = max(0.0, min(3.5, bim))
+                elif is_anacrusis:
                     cur = 4.0
                     for x in reversed(stem_xs):
                         cur -= stem_duration(x)
