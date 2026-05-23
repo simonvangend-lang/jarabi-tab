@@ -367,19 +367,19 @@ with pdfplumber.open(PDF) as pdf:
                          and l['bottom'] <= sys_bot + 5)],
                     key=lambda l: l['x0']
                 )
-                # Deduplicate within 3pt
+                # Deduplicate within ~1pt while keeping float precision for beat calc
                 raw_xs = []
                 seen = set()
                 for l in raw_stems_obj:
-                    xr = round(l['x0'], 0)
-                    if xr in seen: continue
-                    seen.add(xr); raw_xs.append(xr)
+                    key = round(l['x0'])
+                    if key in seen: continue
+                    seen.add(key); raw_xs.append(l['x0'])
                 # Map x → stem object (the tallest one at that x) for chord-merge
                 stem_by_x = {}
                 for l in raw_stems_obj:
-                    xr = round(l['x0'], 0)
-                    if xr not in stem_by_x or l['height'] > stem_by_x[xr]['height']:
-                        stem_by_x[xr] = l
+                    # Use the float x directly so subsequent lookups match
+                    if l['x0'] not in stem_by_x or l['height'] > stem_by_x[l['x0']]['height']:
+                        stem_by_x[l['x0']] = l
                 # Exclude barlines / staff start
                 kept = [x for x in raw_xs
                         if abs(x - staff_x0) > 5
