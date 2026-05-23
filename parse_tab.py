@@ -477,7 +477,7 @@ with pdfplumber.open(PDF) as pdf:
                     bar_w = max(1, mx1 - mx0)
                     for x in stem_xs:
                         raw = (x - mx0) / bar_w * 4.0
-                        bim = int(raw * 4 + 0.4) / 4
+                        bim = int(raw * 4 + 0.35) / 4
                         stem_beat[x] = max(0.0, min(3.75, bim))
                 elif is_anacrusis:
                     cur = 4.0
@@ -555,7 +555,7 @@ with pdfplumber.open(PDF) as pdf:
                     if is_multi_voice:
                         bar_w = max(1, mx1 - mx0)
                         raw = (x - mx0) / bar_w * 4.0
-                        b = max(0.0, min(3.75, int(raw * 4 + 0.4) / 4))
+                        b = max(0.0, min(3.75, int(raw * 4 + 0.35) / 4))
                     else:
                         b = stem_beat[nearest]
                         b = max(0.0, min(3.75, b))
