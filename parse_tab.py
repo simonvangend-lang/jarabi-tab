@@ -229,8 +229,12 @@ with pdfplumber.open(PDF) as pdf:
         for w in words:
             if not is_fret(w['text']): continue
             x0 = float(w['x0']); y = float(w['top'])
-            if page_num > 0 and y < 60: continue
+            # Filter page-1 leading "4"s from the 4/4 time signature glyphs
             if page_num == 0 and x0 < 112 and w['text'] == '4': continue
+            # (The legacy "page_num > 0 and y < 60" filter that lived here
+            # incorrectly dropped top-string digits on pages 2+ when the
+            # first system happened to start near y=61. Removed: sys_notes
+            # below already constrains y to the staff range.)
             if round(x0, 1) not in visible_xs: continue
             # Reject if this (x, y) is part of a grace cluster — but only when the
             # word's first digit matches a grace-skip key (chord notes on other
@@ -334,7 +338,7 @@ with pdfplumber.open(PDF) as pdf:
             triplet_marks_x = [
                 c['x0'] for c in page.chars
                 if c.get('text') == '3'
-                and sys_top - 35 <= c['top'] <= sys_top - 2
+                and sys_top - 35 <= c['top'] <= sys_top - 5
                 and round(c['size'], 1) != FRET_SIZE
                 and c.get('non_stroking_color') != (1.0, 1.0, 1.0)
             ]
@@ -831,7 +835,7 @@ with pdfplumber.open(PDF) as pdf:
             triplet_marks_x = [
                 c['x0'] for c in page.chars
                 if c.get('text') == '3'
-                and sys_top - 35 <= c['top'] <= sys_top - 2
+                and sys_top - 35 <= c['top'] <= sys_top - 5
                 and round(c['size'], 1) != FRET_SIZE
                 and c.get('non_stroking_color') != (1.0, 1.0, 1.0)
             ]
