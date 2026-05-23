@@ -398,12 +398,17 @@ with pdfplumber.open(PDF) as pdf:
                                 out.add(max(0, min(5, si)))
                     return out
 
-                # Voice-paired chord merge: when two adjacent stems are within
-                # one eighth-note width, at least one is markedly tall (spans
-                # multiple voices), AND their note-strings don't overlap (a
-                # true chord, not sequential), drop the shorter stem.
+                # Voice-paired chord merge: a melody-voice stem and a bass-voice
+                # stem that share the SAME beat sit at essentially the same x
+                # (within a couple of points). Sequential eighth-note chords,
+                # by contrast, sit roughly one eighth apart. So only merge
+                # stems that are nearly co-located AND where one is markedly
+                # taller (the cross-voice stem) AND their notes are on
+                # disjoint strings (so it's a chord, not a same-string flam).
                 est_eighth = (mx1 - mx0) / 8.0
-                merge_thresh = est_eighth * 0.95
+                # Voice-paired stems are typically within a few pt; cap at
+                # 25% of an eighth so a real eighth-pair never merges.
+                merge_thresh = min(5.0, est_eighth * 0.25)
                 stem_xs = []
                 for x in kept:
                     if stem_xs:
@@ -412,7 +417,11 @@ with pdfplumber.open(PDF) as pdf:
                             h_prev = stem_by_x[prev_x]['height']
                             h_cur  = stem_by_x[x]['height']
                             tall_thresh = staff_height * 0.55
-                            if h_prev > tall_thresh or h_cur > tall_thresh:
+                            h_tall, h_short = max(h_prev, h_cur), min(h_prev, h_cur)
+                            # Only merge if one is genuinely cross-voice tall
+                            # AND meaningfully taller than the other (i.e. the
+                            # shorter is a same-beat partial-voice artifact).
+                            if h_tall > tall_thresh and h_tall > h_short * 1.4:
                                 strs_prev = strings_at(prev_x)
                                 strs_cur  = strings_at(x)
                                 if not (strs_prev & strs_cur):
@@ -450,23 +459,40 @@ with pdfplumber.open(PDF) as pdf:
                 if is_anacrusis:
                     piece_has_anacrusis = True
 
+                def beam_stack(x):
+                    """Count how many beam rectangles cover this stem x.
+                    1 beam = eighth, 2 = sixteenth, 3 = thirty-second."""
+                    return sum(1 for b in sys_beams
+                               if b['x0'] - 3 <= x <= b['x1'] + 3)
+
                 def stem_duration(x):
                     # Triplet stems: 1/3 beat each so three of them sum to 1 beat
                     for cx0, cx1, _, _ in triplet_ranges:
                         if cx0 - 5 <= x <= cx1 + 5:
                             return 1.0 / 3.0
-                    return 0.5 if is_beamed(x) else 1.0
+                    bs = beam_stack(x)
+                    if bs >= 3: return 0.125     # 32nd
+                    if bs == 2: return 0.25      # 16th
+                    if bs == 1: return 0.5       # 8th
+                    return 1.0                    # quarter
 
                 # Detect multi-voice bars by counting distinct beam-top groups.
                 # 3+ separate top-y levels = multiple voices laid out across the
-                # bar — cumulative beat counting overcounts. Fall back to a
-                # uniform x→beat mapping for these bars.
+                # bar — cumulative beat counting may overcount if voice-paired
+                # stems weren't fully merged. Fall back to uniform x→beat
+                # mapping ONLY when the cumulative count is clearly off (total
+                # durations significantly exceed one bar). With beam-stack
+                # counting (sixteenths get 0.25, eighths 0.5), most multi-voice
+                # bars now total to ~4.0 and don't need the fallback.
                 tops = sorted(stem_by_x[x]['top'] for x in stem_xs)
                 top_groups = []
                 for t in tops:
                     if top_groups and t - top_groups[-1] < 3: continue
                     top_groups.append(t)
-                is_multi_voice = len(top_groups) >= 3 and len(stem_xs) > 8
+                cum_total = sum(stem_duration(x) for x in stem_xs)
+                is_multi_voice = (len(top_groups) >= 3
+                                  and len(stem_xs) > 8
+                                  and cum_total > 4.5)
 
                 stem_beat = {}
                 if is_multi_voice:
