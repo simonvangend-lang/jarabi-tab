@@ -470,6 +470,22 @@ with pdfplumber.open(PDF) as pdf:
                     return sum(1 for b in sys_beams
                                if b['x0'] - 3 <= x <= b['x1'] + 3)
 
+                # Flag glyphs (single unbeamed eighth notes use a music-font
+                # glyph instead of a beam). Tubaka uses OpusStd 'j' for the
+                # eighth flag. Without this the stem looks like a quarter and
+                # the bar overflows. Build once per system.
+                # (Defined here per-measure so it's available; the set is
+                #  identical across measures of the same system, but the cost
+                #  is negligible.)
+                flag_xs = [c['x0'] for c in page.chars
+                           if c.get('text') in ('j',)
+                           and 'OpusStd' in (c.get('fontname') or '')
+                           and sys_top - 30 <= c['top'] <= sys_bot + 30
+                           and mx0 - 3 <= c['x0'] <= mx1 + 3]
+
+                def has_flag(x):
+                    return any(abs(fx - x) <= 3 for fx in flag_xs)
+
                 def stem_duration(x):
                     # Triplet stems: 1/3 beat each so three of them sum to 1 beat
                     for cx0, cx1, _, _ in triplet_ranges:
@@ -479,6 +495,7 @@ with pdfplumber.open(PDF) as pdf:
                     if bs >= 3: return 0.125     # 32nd
                     if bs == 2: return 0.25      # 16th
                     if bs == 1: return 0.5       # 8th
+                    if has_flag(x): return 0.5   # 8th with flag (unbeamed single)
                     return 1.0                    # quarter
 
                 # Detect multi-voice bars by counting distinct beam-top groups.
