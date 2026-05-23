@@ -87,7 +87,22 @@ piece_has_anacrusis = False  # set to True if bar 0 is a true pickup (skip the +
 def find_grace_skip_positions(page):
     """Return a set of (round(x0,1), round(y,0)) tuples for digit chars that are
     part of tight grace clusters. Per-(x,y) so chord notes on other strings at the
-    same x are not affected."""
+    same x are not affected.
+
+    Logic:
+    - Jarabi-style PDFs (GRACE_SIZE is None): graces use the same font as mains
+      and are identified solely by tight clustering. Skip all such clusters.
+    - Tubaka-style PDFs (GRACE_SIZE is set): graces have their own smaller font,
+      handled by a separate code path. Tight clusters at the main fret size are
+      usually slurred runs of main notes, NOT graces — so only skip those that
+      look like triplets (3 digits with a "3" marker above)."""
+    # Triplet markers anywhere on the page (a "3" character in a non-fret font)
+    triplet_marks_x = [
+        c['x0'] for c in page.chars
+        if c.get('text') == '3'
+        and round(c['size'], 1) != FRET_SIZE
+        and c.get('non_stroking_color') != (1.0, 1.0, 1.0)
+    ]
     digits = [c for c in page.chars
               if c['text'].isdigit() and round(c['size'], 1) == FRET_SIZE
               and c.get('non_stroking_color') != (1.0, 1.0, 1.0)]
@@ -109,8 +124,13 @@ def find_grace_skip_positions(page):
                 is_grace = (len(cl) >= 3
                             or (len(cl) == 2 and (int(seq) > 22 or width > GRACE_2DIG_W)))
                 if is_grace:
-                    for c in cl:
-                        skip.add((round(c['x0'], 1), round(c['top'])))
+                    is_triplet = (len(cl) == 3
+                                  and any(x0 - 5 <= tx <= x1 + 5 for tx in triplet_marks_x))
+                    # Skip only if Jarabi-style (no GRACE_SIZE) OR this cluster
+                    # is a triplet (will be re-emitted as duration='t' notes).
+                    if GRACE_SIZE is None or is_triplet:
+                        for c in cl:
+                            skip.add((round(c['x0'], 1), round(c['top'])))
             i += 1
     return skip
 
@@ -653,7 +673,10 @@ with pdfplumber.open(PDF) as pdf:
                         # Skip clusters that are triplets (handled in main pass)
                         is_triplet = (len(cl) == 3 and any(
                             x0 - 5 <= tx <= x1 + 5 for tx in triplet_marks_x))
-                        if is_grace and not is_triplet:
+                        # Only emit as Jarabi-style grace when there's no separate
+                        # GRACE_SIZE font. For Tubaka, the cluster's digits remain
+                        # in the main pass (slurred runs of main-size notes).
+                        if is_grace and not is_triplet and GRACE_SIZE is None:
                             frets = [int(c['text']) for c in cl]
                             mid_x = (x0 + x1) / 2
                             for mi, (mx0, mx1) in enumerate(measures):
