@@ -470,12 +470,14 @@ with pdfplumber.open(PDF) as pdf:
 
                 stem_beat = {}
                 if is_multi_voice:
-                    # Uniform-x → beat, snapped to nearest sixteenth (0.25)
-                    # so closely spaced notes stay distinct.
+                    # Uniform-x → beat, snapped to nearest sixteenth (0.25).
+                    # Slightly biased downward (use 0.4 instead of 0.5) so a
+                    # closely spaced sixteenth-run lands on consecutive grid
+                    # positions instead of jumping ahead one sixteenth.
                     bar_w = max(1, mx1 - mx0)
                     for x in stem_xs:
                         raw = (x - mx0) / bar_w * 4.0
-                        bim = round(raw * 4) / 4
+                        bim = int(raw * 4 + 0.4) / 4
                         stem_beat[x] = max(0.0, min(3.75, bim))
                 elif is_anacrusis:
                     cur = 4.0
@@ -543,14 +545,20 @@ with pdfplumber.open(PDF) as pdf:
                         'beat_in_measure': round(b, 4),
                     })
 
-                # Map each note to its beat via nearest stem. Track per-stem
-                # main notes so we can attach small grace ornaments below.
+                # Map each note to its beat via nearest stem (default) or
+                # uniform-x mapping of the note's own x (for multi-voice bars,
+                # where stem positions may be offset from digit positions).
                 main_notes_in_bar = []   # (stem_x, str_idx, fret, beat_global)
                 for x, y, fret in sys_notes:
                     if not (mx0 - 1 <= x <= note_x1 + 1): continue
                     nearest = min(stem_xs, key=lambda sx: abs(sx - x))
-                    b = stem_beat[nearest]
-                    b = max(0.0, min(3.75, b))
+                    if is_multi_voice:
+                        bar_w = max(1, mx1 - mx0)
+                        raw = (x - mx0) / bar_w * 4.0
+                        b = max(0.0, min(3.75, int(raw * 4 + 0.4) / 4))
+                    else:
+                        b = stem_beat[nearest]
+                        b = max(0.0, min(3.75, b))
                     global_beat = global_m * 4.0 + b
 
                     str_idx = (min(range(len(staff_ys)),
