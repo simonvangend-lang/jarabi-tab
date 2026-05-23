@@ -470,12 +470,13 @@ with pdfplumber.open(PDF) as pdf:
 
                 stem_beat = {}
                 if is_multi_voice:
-                    # Uniform-x → beat, snapped to nearest eighth
+                    # Uniform-x → beat, snapped to nearest sixteenth (0.25)
+                    # so closely spaced notes stay distinct.
                     bar_w = max(1, mx1 - mx0)
                     for x in stem_xs:
                         raw = (x - mx0) / bar_w * 4.0
-                        bim = round(raw * 2) / 2
-                        stem_beat[x] = max(0.0, min(3.5, bim))
+                        bim = round(raw * 4) / 4
+                        stem_beat[x] = max(0.0, min(3.75, bim))
                 elif is_anacrusis:
                     cur = 4.0
                     for x in reversed(stem_xs):
