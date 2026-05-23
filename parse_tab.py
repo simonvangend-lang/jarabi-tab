@@ -111,9 +111,14 @@ def find_grace_skip_positions(page):
       handled by a separate code path. Tight clusters at the main fret size are
       usually slurred runs of main notes, NOT graces — so only skip those that
       look like triplets (3 digits with a "3" marker above)."""
-    # Triplet markers anywhere on the page (a "3" character in a non-fret font)
-    triplet_marks_x = [
-        c['x0'] for c in page.chars
+    # Triplet markers anywhere on the page (a "3" character in a non-fret font).
+    # Keep their (x, y) so each digit cluster only matches markers in roughly
+    # the same vertical region — without the y-check a "3" near the top of the
+    # page was being treated as a triplet marker for a cluster much further
+    # down (e.g. Tubaka m55: a "3" at top=94 was eating the slurred "3-1-0"
+    # cluster at y=512).
+    triplet_marks_xy = [
+        (c['x0'], c['top']) for c in page.chars
         if c.get('text') == '3'
         and round(c['size'], 1) != FRET_SIZE
         and c.get('non_stroking_color') != (1.0, 1.0, 1.0)
@@ -139,8 +144,14 @@ def find_grace_skip_positions(page):
                 is_grace = (len(cl) >= 3
                             or (len(cl) == 2 and (int(seq) > 22 or width > GRACE_2DIG_W)))
                 if is_grace:
+                    # Triplet marker must be ABOVE this cluster's row (within
+                    # ~40pt) to count. Otherwise a "3" elsewhere on the page
+                    # can falsely flag a slurred digit run as a triplet.
+                    cluster_top = cl[0]['top']
                     is_triplet = (len(cl) == 3
-                                  and any(x0 - 5 <= tx <= x1 + 5 for tx in triplet_marks_x))
+                                  and any(x0 - 5 <= tx <= x1 + 5
+                                          and cluster_top - 40 <= ty <= cluster_top - 2
+                                          for tx, ty in triplet_marks_xy))
                     # Skip only if Jarabi-style (no GRACE_SIZE) OR this cluster
                     # is a triplet (will be re-emitted as duration='t' notes).
                     if GRACE_SIZE is None or is_triplet:
