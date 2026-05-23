@@ -321,7 +321,7 @@ with pdfplumber.open(PDF) as pdf:
             triplet_marks_x = [
                 c['x0'] for c in page.chars
                 if c.get('text') == '3'
-                and sys_top - 25 <= c['top'] <= sys_top - 3
+                and sys_top - 35 <= c['top'] <= sys_top - 2
                 and round(c['size'], 1) != FRET_SIZE
                 and c.get('non_stroking_color') != (1.0, 1.0, 1.0)
             ]
@@ -485,6 +485,24 @@ with pdfplumber.open(PDF) as pdf:
                                     continue
                     stem_xs.append(x)
 
+                # ── Standard-triplet detection ────────────────────────────────
+                # A "3" marker above the staff (OpusTextStd-style or any non-fret
+                # font) plus 3 stems at roughly even spacing below it = a
+                # standard musical triplet. Mark the stems' x-range so
+                # stem_duration() returns 1/3 beat each. No notes are emitted
+                # here — the main pass already places the digits; we only need
+                # to fix the rhythm.
+                for tx in triplet_marks_x:
+                    if not (mx0 - 5 <= tx <= mx1 + 5): continue
+                    # Already covered by a tight-cluster triplet at this x?
+                    if any(cx0 - 8 <= tx <= cx1 + 8 for cx0, cx1, _, _ in triplet_ranges):
+                        continue
+                    nearby = sorted(sx for sx in stem_xs if tx - 5 <= sx <= tx + 35)
+                    if len(nearby) >= 3:
+                        gaps = [nearby[i+1] - nearby[i] for i in range(2)]
+                        if min(gaps) > 0 and max(gaps) / min(gaps) < 1.6:
+                            triplet_ranges.append((nearby[0], nearby[2], -1, []))
+
                 if not stem_xs:
                     # Fallback: place any notes at beat 0
                     for x, y, fret in sys_notes:
@@ -537,13 +555,19 @@ with pdfplumber.open(PDF) as pdf:
                     return any(abs(fx - x) <= 3 for fx in flag_xs)
 
                 def stem_duration(x):
-                    # Triplet stems: 1/3 beat each so three of them sum to 1 beat
-                    for cx0, cx1, _, _ in triplet_ranges:
-                        if cx0 - 5 <= x <= cx1 + 5:
-                            return 1.0 / 3.0
                     # Scale all default durations by the current time sig.
                     # In 4/4: eighth = 0.5 beat. In 12/8: eighth = 1/3 beat.
                     e = beats_per_eighth
+                    # Triplet stems — duration depends on the beam stack:
+                    #   1 beam = eighth triplet (3 in 1 beat = e*2/3 each)
+                    #   2 beams = sixteenth triplet (3 in 0.5 beat = e/3 each)
+                    #   3 beams = 32nd triplet
+                    for cx0, cx1, _, _ in triplet_ranges:
+                        if cx0 - 5 <= x <= cx1 + 5:
+                            bs = beam_stack(x)
+                            if bs >= 3: return e / 6.0
+                            if bs == 2: return e / 3.0
+                            return e * 2.0 / 3.0
                     bs = beam_stack(x)
                     if bs >= 3: return e / 4.0   # 32nd
                     if bs == 2: return e / 2.0   # 16th
@@ -789,7 +813,7 @@ with pdfplumber.open(PDF) as pdf:
             triplet_marks_x = [
                 c['x0'] for c in page.chars
                 if c.get('text') == '3'
-                and sys_top - 25 <= c['top'] <= sys_top - 3
+                and sys_top - 35 <= c['top'] <= sys_top - 2
                 and round(c['size'], 1) != FRET_SIZE
                 and c.get('non_stroking_color') != (1.0, 1.0, 1.0)
             ]
