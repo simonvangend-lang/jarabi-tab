@@ -8,3 +8,5 @@ jarabi.txt
 jarabi_strip.png
 __pycache__/
 *.pyc
+tests/tabs/
+tests/.last_run/
