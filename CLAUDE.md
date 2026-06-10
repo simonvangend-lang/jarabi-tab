@@ -17,8 +17,11 @@ GitHub Pages. `add_score.py` is the parse → register → commit → push pipel
   If jarabi is ever regenerated, restore the bpm manually.
 - The source tab PDFs are copyrighted — they live in `tests/tabs/`
   (gitignored) and on the T9 drive. Never commit them; this repo is public.
-- `sw.js` carries the service-worker cache version — bump it whenever
-  deploying changed assets, or clients keep serving the old version.
+- **Deploy with `python3 deploy.py "commit message"`** — it bumps the
+  service-worker cache version in `sw.js`, runs the regression check if
+  `parse_tab.py` changed, commits tracked changes, pushes, and polls the
+  live URL until the new version is served. Never bump `sw.js` by hand or
+  declare a deploy done without that verification.
 - The unrelated `xhosa-vocab/` and `xhosa-vocab-desktop/` folders are
   separate projects that happen to live in this directory; don't touch them
   from here.
