@@ -10,3 +10,5 @@ __pycache__/
 *.pyc
 tests/tabs/
 tests/.last_run/
+build_kk_handout.js
+stray_tmp2/
